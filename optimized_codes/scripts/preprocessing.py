@@ -58,7 +58,7 @@ def sparsify(anndata: sc.AnnData) -> sc.AnnData:
 
 def annotate(anndata: sc.AnnData, directories: list[str]) -> None:
     """
-    Annotates scanpy AnnData objects with appropriate condition and sample IDs
+    Annotates scanpy AnnData object with condition and sample IDs from file names
     """
 
     # Get file names in case full paths are passed in
@@ -82,5 +82,63 @@ def annotate(anndata: sc.AnnData, directories: list[str]) -> None:
     anndata.obs['condition'] = anndata.obs['batch'].map(condition_map)
     anndata.obs['sampleID'] = anndata.obs['batch'].map(sample_id_map)
 
+def write_anndata(anndata: sc.AnnData, dir: pathlib.Path, filename: str) -> None:
+    """
+    Writes scanpy AnnData object to disk in specified directory with filename
+    """
+    anndata.write(pathlib.Path(dir, filename))
+
+def adata_var_get(_adata: sc.AnnData, prefix_l=[], gene_l=[]):
+    vars_l = set()
+    for prefix in prefix_l:
+        vars_l |= set(_adata.var.index[_adata.var.index.str.startswith(prefix)])
+    vars_l |= set(_adata.var.index[_adata.var.index.isin(gene_l)])
+    if vars_l:
+        return _adata[:, list(vars_l)]
+    else:
+        return None
+
+def highest_expr_genes(anndata: sc.AnnData, **kwargs) -> plt.Figure:
+    """
+    Plots highest expressed genes from scanpy AnnData object
+    """
+    
+    return sc.pl.highest_expr_genes(anndata, **kwargs)
+
+def mito_qc_metrics(anndata: sc.AnnData) -> pd.DataFrame:
+    """
+    Uses mitochondrial genes to calculate quality control metrics for annotation data
+    """
+
+    anndata.var['mt'] = anndata.var_names.str.startswith('MT-')  # annotate the group of mitochondrial genes as 'mt'
+    qc_metrics = sc.pp.calculate_qc_metrics(
+        anndata, 
+        qc_vars=['mt'], 
+        percent_top=None, 
+        log1p=False, 
+        inplace=True
+    )
+    return qc_metrics
 
 
+
+if __name__ == "__main__":
+    # Within the raw folder, get all the directory paths
+    anndata_dirs = [p for p in os.listdir(inDir) if os.path.isdir(p)]
+    
+    # Concatenate all these files into one scanpy object
+    anndata_concat = concatenate(anndata_dirs)
+
+    # Save space by storing sparse matrices in CSR format
+    anndata_sparse = sparsify(anndata_concat)
+
+    # Store the raw object in case
+    write_anndata(anndata_sparse, interDir, "pasca_aggr.h5ad")
+
+    # Annotate control/patient labels according to directory names
+    anndata_annot = annotate(anndata_sparse, anndata_dirs)
+    
+    ribo_p = adata_var_get(anndata_annot, prefix_l=['RPL', 'RPS', 'MRPL', 'MRPS'])
+    ribo_r = adata_var_get(anndata_annot, gene_l=['RN45S', 'RN4.5S'])
+    print(ribo_p)
+    print(ribo_r)
