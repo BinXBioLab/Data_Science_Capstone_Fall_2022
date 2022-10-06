@@ -11,10 +11,14 @@ This repo uses python 3.10.4 for all the python code (scripts and notebooks). We
 conda env create -f environment.yml
 ```
 
-This will install all the necessary python dependencies on your machine.
+This will install all the necessary python dependencies on your machine. To access this environment, type the following (`scrna` is the default name of the conda environment):
+
+```
+conda activate scrna
+```
 
 ## R
-We use version 4.1.1 for R. The R packages are installed in the scripts so there's no need to worry about installing the R packages. This may change later.
+We use version 4.2.1 for R. The R packages are installed in the scripts so there's no need to worry about installing the R packages. This may change later. Please download the appropriate version of R [here](https://archive.linux.duke.edu/cran/) based on your operating system. 
 
 ## Docker
 Coming soon...
