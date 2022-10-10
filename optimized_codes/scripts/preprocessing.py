@@ -121,8 +121,7 @@ def mito_qc_metrics(anndata: sc.AnnData) -> pd.DataFrame:
     return qc_metrics
 
 
-
-if __name__ == "__main__":
+def main():
     # Within the raw folder, get all the directory paths
     anndata_dirs = [p for p in os.listdir(inDir) if os.path.isdir(p)]
     
