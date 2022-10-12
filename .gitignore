@@ -1,2 +1,7 @@
 raw_data/Pasca_scRNAseq/inter/*
 **/.DS_Store
+packrat/lib*/
+.Rproj.user
+.Rproj
+.RProfile
+.RHistory
