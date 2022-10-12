@@ -17,6 +17,7 @@ RUN apt install --no-install-recommends -y r-base
 # Installing anaconda and python dependencies
 # Install miniconda
 RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && /bin/bash ~/miniconda.sh -b -p /opt/conda
+RUN conda update -n base -c defaults conda
 RUN git clone https://github.com/BinXBioLab/Data_Science_Capstone_Fall_2022.git
 RUN cd Data_Science_Capstone_Fall_2022
 RUN conda env create -f /Data_Science_Capstone_Fall_2022/environment.yml
