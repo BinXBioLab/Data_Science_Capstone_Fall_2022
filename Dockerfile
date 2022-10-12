@@ -5,7 +5,7 @@ ENV CONDA_DIR /opt/conda
 ENV PATH=$CONDA_DIR/bin:$PATH 
 
 RUN apt-get -y update
-RUN apt-get install -y python3.10 wget git
+RUN apt-get install -y python3.9 wget git make
 
 # Installing R 
 RUN apt update -qq
@@ -23,5 +23,6 @@ COPY requirements.txt /requirements.txt
 RUN pip install -r requirements.txt
 
 # Install R dependencies
-RUN R -e "install.packages(c('BiocManager', 'rliger', 'reshape2', 'ggplot2', 'plyr', 'MAST', 'scran', 'gam', 'clusterExperiment', 'Rcpp'))"
+RUN R -e "install.packages(c('BiocManager'))"
 RUN R -e "BiocManager::install(c('Seurat', 'SingleR'))"
+RUN R -e "install.packages(c('Rcpp', 'ggplot2', 'liger', 'reshape2', 'plyr', 'MAST', 'scran', 'gam', 'clusterExperiment'))"
