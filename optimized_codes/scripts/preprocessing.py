@@ -9,6 +9,7 @@ import pandas as pd
 import seaborn as sns
 import pathlib
 import git
+from tqdm import tqdm, trange
 
 import rpy2.rinterface_lib.callbacks
 import rpy2.robjects as ro
@@ -111,14 +112,62 @@ def mito_qc_metrics(anndata: sc.AnnData) -> pd.DataFrame:
     """
 
     anndata.var['mt'] = anndata.var_names.str.startswith('MT-')  # annotate the group of mitochondrial genes as 'mt'
-    qc_metrics = sc.pp.calculate_qc_metrics(
-        anndata, 
-        qc_vars=['mt'], 
-        percent_top=None, 
-        log1p=False, 
-        inplace=True
-    )
+    qc_metrics = sc.pp.calculate_qc_metrics(anndata, qc_vars=['mt'], percent_top=None, log1p=False,  inplace=True)
     return qc_metrics
+
+def augment_with_ribo_data(anndata: sc.AnnData, ribo_p: any) -> None:
+    anndata.obs['n_counts_ribo_p'] = ribo_p.X.sum(axis=1).A1.tolist()
+
+    # TODO: Turn this into multiple functions for improved readability
+    anndata.obs['percent_ribo_p'] = (100*ribo_p.X.sum(axis=1).transpose()/np.ravel(np.sum(anndata.X, axis=1))).transpose().A1.tolist()
+
+def create_qc_violin_plots(anndata: sc.AnnData, to_plot: list[str]) -> None:
+    progress = trange(3, desc='Creating quality control violin plots')
+
+    # Basic QC
+    progress.set_description("Basic QC plot")
+    sc.pl.violin(anndata, to_plot, jitter=0.4, multi_panel=True, save='.qc.pdf')
+    progress.update(1)
+
+    # Grouped by batch
+    progress.set_description("Grouped by batch")
+    sc.pl.violin(anndata, to_plot, jitter=0.4, save=f'.qc.batch.pdf', groupby='batch', rotation=45, cut=0)
+    progress.update(1)
+    
+    # Grouped by condition
+    progress.set_description("Grouped by condition")
+    sc.pl.violin(anndata, to_plot, jitter=0.4, save=f'.qc.batch.pdf', groupby='condition', rotation=45, cut=0)
+    progress.update(1)
+
+
+def filter_by_attr(
+    anndata: sc.AnnData, 
+    pct_count: tuple(int | None, int | None), 
+    genes_by_count: tuple(int | None, int | None), 
+    total_counts: tuple(int | float | None, int | float | None)) -> sc.AnnData:
+    
+    # Perform a deep copy so operations are not done in-place
+    temp = anndata.copy()
+
+    # Filter by percentage of MT- genes
+    if pct_count[0] is not None:
+        temp = temp[temp.obs['pct_counts_mt'] > pct_count[0], :]
+    if pct_count[1] is not None:
+        temp = temp[temp.obs['pct_counts_mt'] < pct_count[1], :]
+    
+    # Filter by number of detected genes
+    if genes_by_count[0] is not None:
+        temp = temp[temp.obs['n_genes_by_counts'] >= genes_by_count[0], :]
+    if genes_by_count[1] is not None:
+        temp = temp[temp.obs['n_genes_by_counts'] <= genes_by_count[1], :]
+    
+    # Filter by number of counts
+    if total_counts[0] is not None:
+        temp = temp[temp.obs['total_counts'] >= total_counts[0], :]
+    if total_counts[1] is not None:
+        temp = temp[temp.obs['total_counts'] <= total_counts[1], :]
+
+    return temp
 
 
 def main():
@@ -137,7 +186,84 @@ def main():
     # Annotate control/patient labels according to directory names
     anndata_annot = annotate(anndata_sparse, anndata_dirs)
     
+    # Create violin plot of highest expressed genes
+    highest_expr_genes(anndata_annot, n_top=40, save='.raw_top40.pdf')
+    
+    # Get ribosomal gene data
     ribo_p = adata_var_get(anndata_annot, prefix_l=['RPL', 'RPS', 'MRPL', 'MRPS'])
     ribo_r = adata_var_get(anndata_annot, gene_l=['RN45S', 'RN4.5S'])
-    print(ribo_p)
-    print(ribo_r)
+    print(f"{ribo_p.__name__!r}: {ribo_p}")
+    print(f"{ribo_r.__name__!r}: {ribo_r}")
+
+    items_to_plot = [
+        'n_genes_by_counts',
+        'total_counts',
+        'pct_counts_mt',
+        'n_counts_ribo_p',
+        'percent_ribo_p',
+    ]
+
+    # Creating violin plots for visual quality control
+    create_qc_violin_plots(anndata=anndata_annot, to_plot=items_to_plot)
+
+    # Save anndata before QC step
+    write_anndata(anndata_annot, interDir, "pasca_preqc.h5ad")
+
+    # Plots before filtering
+    sc.pl.scatter(
+        anndata_annot, 
+        color='pct_counts_mt', 
+        x='total_counts', 
+        y='n_genes_by_counts', 
+        save='.qc.lib_detect_mito.pdf', 
+        color_map='viridis'
+    )
+    sc.pl.scatter(
+        anndata_annot, 
+        color='percent_ribo_p', 
+        x='total_counts', 
+        y='n_genes_by_counts', 
+        save='.qc.lib_detect_ribo_p.pdf', 
+        color_map='viridis'
+    )
+    
+    # Filtering
+    anndata_filtered = filter_by_attr(anndata=anndata_annot, pct_count=(None, 20), genes_by_count=(200, 8000), total_counts=(None, 5e4))
+
+    # Plots after filtering
+    sc.pl.scatter(
+        anndata_filtered, 
+        color='pct_counts_mt', 
+        x='total_counts', 
+        y='n_genes_by_counts', 
+        frameon=True, 
+        save='.qc.lib_detect_mito.filter.pdf', 
+        color_map='viridis'
+    )
+    sc.pl.scatter(
+        anndata_filtered,
+        color='percent_ribo_p',
+        x='total_counts',
+        y='n_genes_by_counts',
+        frameon=True,
+        save='.qc.lib_detect_ribo_p.filter.pdf',
+        color_map='viridis',
+    )
+    sc.pl.scatter(
+        anndata_filtered,
+        color='batch',
+        x='total_counts',
+        y='n_genes_by_counts',
+        frameon=True,
+        save='.qc.lib_detect_batch.filter.pdf',
+        color_map='viridis',
+    )
+
+    # Filter out genes with 0 cells
+    sc.pp.filter_genes(anndata_filtered, min_cells=1)
+
+    # Save anndata before QC step
+    write_anndata(anndata_filtered, interDir, "pasca_postqc.h5ad")
+
+if __name__ == "__main__":
+    main()
