@@ -19,9 +19,7 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
 RUN conda update -n base -c defaults conda
 
 # Installing python dependencies
-RUN mkdir /Data_Science_Capstone_Fall_2022
-COPY . /Data_Science_Capstone_Fall_2022/
-RUN cd Data_Science_Capstone_Fall_2022
+COPY requirements.txt /requirements.txt
 RUN pip install -r requirements.txt
 
 # Install R dependencies
