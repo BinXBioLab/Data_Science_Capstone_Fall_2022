@@ -27,6 +27,7 @@ topDir = os.path.join(git_root, "raw_data/Pasca_scRNAseq/")
 prefix = 'pasca'
 pathlib.Path(topDir)
 
+# TODO: Make this so it recognizes Google Colab versus local machine
 inDir = pathlib.Path(topDir,"raw")
 outDir = pathlib.Path(topDir,"outputs")
 interDir = pathlib.Path(topDir,"inter")
