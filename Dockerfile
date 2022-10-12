@@ -20,5 +20,5 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
 RUN conda update -n base -c defaults conda
 RUN git clone https://github.com/BinXBioLab/Data_Science_Capstone_Fall_2022.git
 RUN cd Data_Science_Capstone_Fall_2022
-RUN conda env create -f /Data_Science_Capstone_Fall_2022/environment.yml
+RUN pip install -r requirements.txt
 
