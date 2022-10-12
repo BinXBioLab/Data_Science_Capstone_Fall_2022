@@ -10,7 +10,7 @@ dependencies:
   - ncurses=6.3
   - openssl=1.1.1q
   - pip=22.2.2
-  - python=3.10.4
+  - python=3.9.0
   - readline=8.1.2
   - sqlite=3.39.3
   - tk=8.6.12
