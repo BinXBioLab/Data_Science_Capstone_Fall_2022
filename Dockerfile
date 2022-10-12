@@ -14,11 +14,16 @@ RUN wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc |
 RUN add-apt-repository 'deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/'
 RUN apt install --no-install-recommends -y r-base
 
-# Installing anaconda and python dependencies
-# Install miniconda
+# Installing miniconda 
 RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && /bin/bash ~/miniconda.sh -b -p /opt/conda
 RUN conda update -n base -c defaults conda
-RUN git clone https://github.com/BinXBioLab/Data_Science_Capstone_Fall_2022.git
+
+# Installing python dependencies
+RUN mkdir /Data_Science_Capstone_Fall_2022
+COPY . /Data_Science_Capstone_Fall_2022/
 RUN cd Data_Science_Capstone_Fall_2022
 RUN pip install -r requirements.txt
 
+# Install R dependencies
+RUN R -e "install.packages(c('BiocManager', 'rliger', 'reshape2', 'ggplot2', 'plyr', 'MAST', 'scran', 'gam', 'clusterExperiment', 'Rcpp'))"
+RUN R -e "BiocManager::install(c('Seurat', 'SingleR'))"
