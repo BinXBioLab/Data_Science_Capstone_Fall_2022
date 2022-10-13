@@ -1,3 +1,4 @@
+import gc
 import sys
 import os
 import matplotlib.pyplot as plt
@@ -11,23 +12,26 @@ import pathlib
 import git
 from tqdm import tqdm, trange
 
-import rpy2.rinterface_lib.callbacks
 import rpy2.robjects as ro
 import logging
 from rpy2.robjects import numpy2ri
+from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
 import anndata2ri
 
 pandas2ri.activate()
 anndata2ri.activate()
 
+# TODO: Make this so it recognizes Google Colab versus local machine
+# TODO: Add logic to switch between looking for GitHub root and colab
 git_repo = git.Repo(".", search_parent_directories=True)
 git_root = git_repo.git.rev_parse("--show-toplevel")
+
+# TODO: Add command line argument which passes logging level
+logging.basicConfig(filename='preprocessing.log', level=logging.INFO)
+
 topDir = os.path.join(git_root, "raw_data/Pasca_scRNAseq/")
 prefix = 'pasca'
-pathlib.Path(topDir)
-
-# TODO: Make this so it recognizes Google Colab versus local machine
 inDir = pathlib.Path(topDir,"raw")
 outDir = pathlib.Path(topDir,"outputs")
 interDir = pathlib.Path(topDir,"inter")
@@ -42,6 +46,8 @@ def concatenate(directories: list[str]) -> sc.AnnData:
     """
     Concatenates scanpy annotation data from multiple samples into 1 large object
     """
+    logging.info(f"Reading in counts and metadata from \n {directories}")
+
     # Each directory corresponds with a sample
     raw_data = [sc.read(dir) for dir in directories]
     
@@ -49,14 +55,14 @@ def concatenate(directories: list[str]) -> sc.AnnData:
     concatenated = raw_data[0].concatenate(*raw_data[1:])
     return concatenated
 
-def sparsify(anndata: sc.AnnData) -> sc.AnnData:
+def sparsify(anndata: sc.AnnData, make_vars_unique: bool = True) -> sc.AnnData:
     # Ensures we're not storing redundant variables in data
-    anndata.var_names_make_unique()
+    if make_vars_unique:
+        anndata.var_names_make_unique()
 
     # CSR is compressed sparse row format; simply a space saving measure
     anndata.X = csr_matrix(anndata.X)
     return anndata 
-
 
 def annotate(anndata: sc.AnnData, directories: list[str]) -> None:
     """
@@ -88,7 +94,9 @@ def write_anndata(anndata: sc.AnnData, dir: pathlib.Path, filename: str) -> None
     """
     Writes scanpy AnnData object to disk in specified directory with filename
     """
-    anndata.write(pathlib.Path(dir, filename))
+    fullpath = pathlib.Path(dir, filename)
+    logging.info(f"Writing {fullpath}")
+    anndata.write(fullpath)
 
 def adata_var_get(_adata: sc.AnnData, prefix_l=[], gene_l=[]):
     vars_l = set()
@@ -140,7 +148,6 @@ def create_qc_violin_plots(anndata: sc.AnnData, to_plot: list[str]) -> None:
     sc.pl.violin(anndata, to_plot, jitter=0.4, save=f'.qc.batch.pdf', groupby='condition', rotation=45, cut=0)
     progress.update(1)
 
-
 def filter_by_attr(
     anndata: sc.AnnData, 
     pct_count: tuple(int | None, int | None), 
@@ -170,8 +177,51 @@ def filter_by_attr(
 
     return temp
 
+def r_pipeline(anndata: sc.AnnData):
+    # Importing R package scran
+    importr('scran')
+    
+    # Assigning the transposed counts to a variable called `mat`
+    ro.r.assign('mat', anndata.X.T)
+    qclust_params = 'mat'
 
-def main():
+    # Can this be done in python?
+    # Creating quickCluster object and transforming into SingleCellExperiment for later use
+    ro.reval(f'cl <- quickCluster({qclust_params})')
+    csf_params = f'SingleCellExperiment::SingleCellExperiment(list(counts=mat)), clusters = cl'
+
+    # Garbage collection to free up memory
+    del qclust_params
+    gc.collect()
+
+    # Something in scran?
+    ro.reval(f'mysce <-computeSumFactors({csf_params})')
+
+    # Converting scran output to numpy
+    sf = np.asarray(ro.reval(f'sizeFactors(mysce)'))
+
+    # Garbage collection again?
+    del csf_params
+    gc.collect()
+
+    # TODO: Change this so manipulation doesn't occur in-place
+    anndata.obs['sf'] = sf   
+    anndata.layers['counts'] = anndata.X.copy()
+    anndata.X /= anndata.obs['sf'].values[:, None]
+
+    return anndata
+
+def generate_liger_input(anndata: sc.AnnData) -> None:
+    # Counts file needed by liger
+    anndata.X = anndata.layers['counts']
+    anndata.to_df().to_csv(pathlib.Path(interDir, 'pasca_log1p.csv'))
+
+    # Metadata file needed by liger
+    sc.get.obs_df(anndata, keys=anndata.obs_keys()).to_csv(
+        pathlib.Path(interDir,'pasca_log1p.metadata.csv')
+    )
+
+def preprocess():
     # Within the raw folder, get all the directory paths
     anndata_dirs = [p for p in os.listdir(inDir) if os.path.isdir(p)]
     
@@ -179,7 +229,7 @@ def main():
     anndata_concat = concatenate(anndata_dirs)
 
     # Save space by storing sparse matrices in CSR format
-    anndata_sparse = sparsify(anndata_concat)
+    anndata_sparse = sparsify(anndata_concat, make_vars_unique=True)
 
     # Store the raw object in case
     write_anndata(anndata_sparse, interDir, "pasca_aggr.h5ad")
@@ -190,6 +240,7 @@ def main():
     # Create violin plot of highest expressed genes
     highest_expr_genes(anndata_annot, n_top=40, save='.raw_top40.pdf')
     
+    # TODO: How to not have this hardcoded
     # Get ribosomal gene data
     ribo_p = adata_var_get(anndata_annot, prefix_l=['RPL', 'RPS', 'MRPL', 'MRPS'])
     ribo_r = adata_var_get(anndata_annot, gene_l=['RN45S', 'RN4.5S'])
@@ -266,5 +317,25 @@ def main():
     # Save anndata before QC step
     write_anndata(anndata_filtered, interDir, "pasca_postqc.h5ad")
 
+    # scran pipeline in R
+    anndata_scran = r_pipeline(anndata_filtered)
+
+    # Sparsifying the scran output to save space
+    anndata_scran_sparse = sparsify(anndata=anndata_scran, make_vars_unique=False)
+
+    # Plotting cell counts
+    sc.pl.scatter(
+        anndata_scran_sparse,
+        color='total_counts',
+        y='sf',
+        x='n_genes_by_counts',
+        color_map='viridis',
+        save='.sf.pdf',
+    )
+
+    # Take each entry in the counts matrix (call it x) and replace it with log(x + 1)
+    sc.pp.log1p(anndata_scran_sparse)
+    write_anndata(anndata_scran_sparse, interDir, "pasca_log1p.h5ad")
+
 if __name__ == "__main__":
-    main()
+    preprocess()
