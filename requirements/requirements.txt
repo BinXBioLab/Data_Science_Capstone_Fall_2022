@@ -84,7 +84,6 @@ prompt-toolkit==3.0.20
 psutil==5.9.0
 ptyprocess==0.7.0
 pure-eval==0.2.2
-pyan3==1.1.1
 pyarrow==9.0.0
 pycallgraph3==1.1.4
 pycparser==2.21
