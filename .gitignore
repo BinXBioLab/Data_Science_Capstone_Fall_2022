@@ -2,6 +2,7 @@ raw_data/Pasca_scRNAseq/inter/*
 raw_data/Pasca_scRNAseq/inter-test/*
 
 optimized_codes/scripts/cache/*
+optimized_codes/scripts/figures/*
 
 **/.DS_Store
 packrat/lib*/
