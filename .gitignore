@@ -1,4 +1,5 @@
 raw_data/Pasca_scRNAseq/inter/*
+raw_data/Pasca_scRNAseq/inter-test/*
 **/.DS_Store
 packrat/lib*/
 .Rproj.user
