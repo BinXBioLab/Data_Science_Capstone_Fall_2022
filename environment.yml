@@ -171,6 +171,7 @@ dependencies:
     - patsy==0.5.2
     - pillow==9.2.0
     - pyan3==1.1.1
+    - pyarrow==9.0.0
     - pycallgraph3==1.1.4
     - pynndescent==0.5.7
     - pyqt5-sip==12.11.0
