@@ -2,7 +2,6 @@ import pdb
 import gc
 import sys
 import os
-import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
 from scipy.sparse import csr_matrix
@@ -13,14 +12,13 @@ from tqdm import tqdm, trange
 import click
 
 import rpy2.robjects as ro
-from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
 import anndata2ri
 
-plt.ioff()            # Ensures non-interactive matplotlib to avoid pop-up figure windows 
-pandas2ri.activate()  # Pandas interface from python <--> R
-anndata2ri.activate() # AnnData interface from python <--> R
+sc.settings.verbosity = 0  # Only print ERROR level messages to the console
+pandas2ri.activate()       # Pandas interface from python <--> R
+anndata2ri.activate()      # AnnData interface from python <--> R
 
 # TODO: Make this so it recognizes Google Colab versus local machine
 # TODO: Add logic to switch between looking for GitHub root and colab
@@ -33,12 +31,6 @@ inDir = pathlib.Path(topDir,"raw")
 outDir = pathlib.Path(topDir,"outputs")
 interDir = pathlib.Path(topDir,"inter-test")
 
-def fullpath_closure(data_dir: pathlib.Path) -> pathlib.Path | str:
-    import os
-    def fullpath(path):
-        return os.path.join(data_dir, path)
-    return fullpath
-
 def concatenate(directories: list[str]) -> sc.AnnData:
     """
     Concatenates scanpy annotation data from multiple samples into 1 large object
@@ -46,7 +38,8 @@ def concatenate(directories: list[str]) -> sc.AnnData:
     click.echo(f"Reading in 10x Genomics counts and metadata")
 
     # Each directory corresponds with a sample
-    raw_data = [sc.read_10x_mtx(dir, var_names='gene_symbols', cache=True, gex_only=True) for dir in tqdm(directories)]
+    # WARNING: AnnData performs implicit np.float64 -> np.float32 conversion, but this will break in 0.9
+    raw_data = [sc.read_10x_mtx(dir, cache=True) for dir in tqdm(directories)]
     
     # Take the first data object, and concatenate with the remaining objects
     concatenated = raw_data[0].concatenate(*raw_data[1:])
@@ -83,8 +76,8 @@ def annotate(anndata: sc.AnnData, directories: list[str]) -> None:
         sys.exit(255)
 
     # Find each experimental condition (usually control and patient)
-    condition_map = {i: basenames[i].split("_")[-2] for i in range(len(basenames))}
-    sample_id_map = {i: basenames for i in range(len(basenames))}
+    condition_map = {str(i): basenames[i].split("_")[-2] for i in range(len(basenames))}
+    sample_id_map = {str(idx): basename for idx, basename in enumerate(basenames)}
 
     # Map corresponding variables to respective dictionaries
     anndata.obs['condition'] = anndata.obs['batch'].map(condition_map)
@@ -131,17 +124,17 @@ def create_qc_violin_plots(anndata: sc.AnnData, to_plot):
 
     # Basic QC
     progress.set_description("Basic QC plot")
-    sc.pl.violin(anndata, to_plot, jitter=0.4, multi_panel=True, save='.qc.pdf')
+    sc.pl.violin(anndata, to_plot, jitter=0.4, multi_panel=True, save='.qc.pdf', show=False)
     progress.update(1)
 
     # Grouped by batch
     progress.set_description("Grouped by batch")
-    sc.pl.violin(anndata, to_plot, jitter=0.4, save=f'.qc.batch.pdf', groupby='batch', rotation=45, cut=0)
+    sc.pl.violin(anndata, to_plot, jitter=0.4, save=f'.qc.batch.pdf', groupby='batch', rotation=45, cut=0, show=False)
     progress.update(1)
     
     # Grouped by condition
     progress.set_description("Grouped by condition")
-    sc.pl.violin(anndata, to_plot, jitter=0.4, save=f'.qc.batch.pdf', groupby='condition', rotation=45, cut=0)
+    sc.pl.violin(anndata, to_plot, jitter=0.4, save=f'.qc.batch.pdf', groupby='condition', rotation=45, cut=0, show=False)
     progress.update(1)
 
 def filter_by_attr(anndata: sc.AnnData,  pct_count, genes_by_count, total_counts) -> sc.AnnData:
@@ -169,44 +162,59 @@ def filter_by_attr(anndata: sc.AnnData,  pct_count, genes_by_count, total_counts
     return temp
 
 def r_pipeline(anndata: sc.AnnData):
+    progress = trange(6, desc='R single cell experiment pipeline')
+    
     # Importing R package scran
+    progress.set_description("Importing scran package")
     importr('scran')
+    progress.update(1)
     
     # Assigning the transposed counts to a variable called `mat`
+    progress.set_description("Storing anndata matrix in R object")
     ro.r.assign('mat', anndata.X.T)
     qclust_params = 'mat'
+    progress.update(1)
 
-    # Can this be done in python?
+    # TODO: Can this be done in python?
     # Creating quickCluster object and transforming into SingleCellExperiment for later use
+    progress.set_description("quickCluster")
     ro.reval(f'cl <- quickCluster({qclust_params})')
     csf_params = f'SingleCellExperiment::SingleCellExperiment(list(counts=mat)), clusters = cl'
+    progress.update(1)
 
     # Garbage collection to free up memory
     del qclust_params
     gc.collect()
 
     # Something in scran?
+    progress.set_description("computeSumFactors")
     ro.reval(f'mysce <-computeSumFactors({csf_params})')
+    progress.update(1)
 
     # Converting scran output to numpy
+    progress.set_description("sizeFactors")
     sf = np.asarray(ro.reval(f'sizeFactors(mysce)'))
+    progress.update(1)
 
     # Garbage collection again?
     del csf_params
     gc.collect()
 
     # TODO: Change this so manipulation doesn't occur in-place
+    progress.set_description("Assigning R results to python")
     anndata.obs['sf'] = sf   
     anndata.layers['counts'] = anndata.X.copy()
     anndata.X /= anndata.obs['sf'].values[:, None]
+    progress.update(1)
 
     return anndata
 
 def generate_liger_input(anndata: sc.AnnData) -> None:
     # Counts file needed by liger
     anndata.X = anndata.layers['counts']
-    # anndata.to_df().to_csv(pathlib.Path(interDir, 'pasca_log1p.csv'))
-    anndata.to_df().to_parquet(pathlib.Path(interDir, 'pasca_log1p.csv')) # Using parquet instead of csv to save space
+
+    # Using parquet instead of csv to save space
+    anndata.to_df().to_parquet(pathlib.Path(interDir, 'pasca_log1p.parquet')) 
 
     # Metadata file needed by liger
     sc.get.obs_df(anndata, keys=anndata.obs_keys()).to_csv(
@@ -216,7 +224,6 @@ def generate_liger_input(anndata: sc.AnnData) -> None:
 def preprocess():
     # Within the raw folder, get all the directory paths
     anndata_dirs = [os.path.join(inDir, p) for p in os.listdir(inDir) if os.path.isdir(os.path.join(inDir, p))]
-    # pdb.set_trace()
     
     # Concatenate all these files into one scanpy object
     anndata_concat = concatenate(anndata_dirs)
@@ -231,7 +238,7 @@ def preprocess():
     anndata_annot = annotate(anndata_sparse, anndata_dirs)
     
     # Create violin plot of highest expressed genes
-    sc.pl.highest_expr_genes(anndata_annot, n_top=40, save='.raw_top40.pdf');
+    sc.pl.highest_expr_genes(anndata_annot, n_top=40, save='.raw_top40.pdf', show=False);
     
     # TODO: How to not have this hardcoded
     # Get ribosomal gene data
@@ -263,7 +270,8 @@ def preprocess():
         x='total_counts', 
         y='n_genes_by_counts', 
         save='.qc.lib_detect_mito.pdf', 
-        color_map='viridis'
+        color_map='viridis',
+        show=False
     )
     sc.pl.scatter(
         anndata_annot, 
@@ -271,7 +279,8 @@ def preprocess():
         x='total_counts', 
         y='n_genes_by_counts', 
         save='.qc.lib_detect_ribo_p.pdf', 
-        color_map='viridis'
+        color_map='viridis',
+        show=False
     )
     
     # Filtering
@@ -285,7 +294,8 @@ def preprocess():
         y='n_genes_by_counts', 
         frameon=True, 
         save='.qc.lib_detect_mito.filter.pdf', 
-        color_map='viridis'
+        color_map='viridis',
+        show=False
     )
     sc.pl.scatter(
         anndata_filtered,
@@ -295,6 +305,7 @@ def preprocess():
         frameon=True,
         save='.qc.lib_detect_ribo_p.filter.pdf',
         color_map='viridis',
+        show=False
     )
     sc.pl.scatter(
         anndata_filtered,
@@ -304,6 +315,7 @@ def preprocess():
         frameon=True,
         save='.qc.lib_detect_batch.filter.pdf',
         color_map='viridis',
+        show=False
     )
 
     # Filter out genes with 0 cells
@@ -326,6 +338,7 @@ def preprocess():
         x='n_genes_by_counts',
         color_map='viridis',
         save='.sf.pdf',
+        show=False
     )
 
     # Take each entry in the counts matrix (call it x) and replace it with log(x + 1)
