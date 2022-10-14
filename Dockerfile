@@ -4,10 +4,11 @@ ENV DEBIAN_FRONTEND noninteractive
 ENV CONDA_DIR /opt/conda
 ENV PATH=$CONDA_DIR/bin:$PATH 
 
-RUN apt update -qq
-RUN apt install --no-install-recommends -y software-properties-common dirmngr
-RUN apt-get install -y python3 wget git make
-RUN apt update -qq
+RUN apt update
+RUN apt install -y software-properties-common dirmngr
+RUN apt update
+RUN apt install -y python3 wget git make
+RUN apt update
 
 # Installing R 
 RUN wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
