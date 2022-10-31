@@ -39,7 +39,19 @@ def concatenate(directories: list[str]) -> sc.AnnData:
 
     # Each directory corresponds with a sample
     # WARNING: AnnData performs implicit np.float64 -> np.float32 conversion, but this will break in 0.9
-    raw_data = [sc.read_10x_mtx(dir, cache=True) for dir in tqdm(directories)]
+    # Sorted order is important to do all controls followed by all patients (might need to be refactored in the future)
+    loop = tqdm(sorted(directories))
+    raw_data = []
+    
+    for dir in loop:
+        loop.set_postfix(directory=os.path.basename(dir))
+        sample = sc.read_10x_mtx(
+            dir, 
+            cache=True,
+            var_names='gene_symbols', 
+            gex_only=True
+        )
+        raw_data.append(sample)
     
     # Take the first data object, and concatenate with the remaining objects
     concatenated = raw_data[0].concatenate(*raw_data[1:])
@@ -56,7 +68,7 @@ def sparsify(anndata: sc.AnnData, make_vars_unique: bool = True) -> sc.AnnData:
     anndata.X = csr_matrix(anndata.X)
     return anndata 
 
-def annotate(anndata: sc.AnnData, directories: list[str]) -> None:
+def _annotate(anndata: sc.AnnData, directories: list[str]) -> None:
     """
     Annotates scanpy AnnData object with condition and sample IDs from file names
     """
@@ -68,8 +80,8 @@ def annotate(anndata: sc.AnnData, directories: list[str]) -> None:
     # Check that data is labeled in a way expected by remaining logic
     try:
         for dir in basenames:
-            cond = dir.split("_")[-2].lower()
-            assert (cond == 'control') or (cond == 'patient')
+            condition = dir.split("_")[-2].lower()
+            assert (condition == 'control') or (condition == 'patient')
     except AssertionError:
         print(f"This path name doesn't contain the correct condition label in the correct location: {dir}")
         print(f"Please rename the path")
@@ -162,6 +174,11 @@ def filter_by_attr(anndata: sc.AnnData,  pct_count, genes_by_count, total_counts
     return temp
 
 def r_pipeline(anndata: sc.AnnData):
+    # click.echo("Writing anndata.X.T to a parquet file for use in R...")
+    # # pdb.set_trace()
+    # df = pd.DataFrame(anndata.X.T.toarray())
+    # df.columns = [str(col) for col in df.columns]
+    # df.to_parquet(os.path.join(git_root, "raw_data", "inter-test", ""))
     progress = trange(6, desc='R single cell experiment pipeline')
     
     # Importing R package scran
@@ -172,18 +189,17 @@ def r_pipeline(anndata: sc.AnnData):
     # Assigning the transposed counts to a variable called `mat`
     progress.set_description("Storing anndata matrix in R object")
     ro.r.assign('mat', anndata.X.T)
-    qclust_params = 'mat'
     progress.update(1)
 
     # TODO: Can this be done in python?
     # Creating quickCluster object and transforming into SingleCellExperiment for later use
     progress.set_description("quickCluster")
-    ro.reval(f'cl <- quickCluster({qclust_params})')
+    ro.reval(f'cl <- quickCluster(mat)')
     csf_params = f'SingleCellExperiment::SingleCellExperiment(list(counts=mat)), clusters = cl'
     progress.update(1)
 
     # Garbage collection to free up memory
-    del qclust_params
+    # del qclust_params
     gc.collect()
 
     # Something in scran?
@@ -221,21 +237,23 @@ def generate_liger_input(anndata: sc.AnnData) -> None:
         pathlib.Path(interDir,'pasca_log1p.metadata.csv')
     )
 
-def preprocess():
-    # Within the raw folder, get all the directory paths
-    anndata_dirs = [os.path.join(inDir, p) for p in os.listdir(inDir) if os.path.isdir(os.path.join(inDir, p))]
+def aggregate(root):
+    # Within the raw folder, get all directory paths as absolute paths
+    anndata_dirs = [os.path.join(root, p) for p in os.listdir(root) if os.path.isdir(os.path.join(root, p))]
     
-    # Concatenate all these files into one scanpy object
+    # Concatenate all these counts and labels into one AnnData object
     anndata_concat = concatenate(anndata_dirs)
 
     # Save space by storing sparse matrices in CSR format
     anndata_sparse = sparsify(anndata_concat, make_vars_unique=True)
 
-    # Store the raw object in case
+    # Store the unprocessed, concatenated data
     write_anndata(anndata_sparse, interDir, "pasca_aggr.h5ad")
+    return anndata_dirs, anndata_sparse
 
+def annotate(anndata_sparse, anndata_dirs):
     # Annotate control/patient labels according to directory names
-    anndata_annot = annotate(anndata_sparse, anndata_dirs)
+    anndata_annot = _annotate(anndata_sparse, anndata_dirs)
     
     # Create violin plot of highest expressed genes
     sc.pl.highest_expr_genes(anndata_annot, n_top=40, save='.raw_top40.pdf', show=False);
@@ -243,9 +261,6 @@ def preprocess():
     # TODO: How to not have this hardcoded
     # Get ribosomal gene data
     ribo_p = adata_var_get(anndata_annot, prefix_l=['RPL', 'RPS', 'MRPL', 'MRPS'])
-    ribo_r = adata_var_get(anndata_annot, gene_l=['RN45S', 'RN4.5S'])
-    print(f"ribo_p: {ribo_p}")
-    print(f"ribo_r: {ribo_r}")
 
     anndata_augmented = mito_qc_metrics(anndata_annot)
     anndata_augmented = augment_with_ribo_data(anndata_annot, ribo_p)
@@ -262,68 +277,35 @@ def preprocess():
 
     # Save anndata before QC step
     write_anndata(anndata_annot, interDir, "pasca_preqc.h5ad")
+    return anndata_annot
 
+def quality_control(anndata_annot):
     # Plots before filtering
-    sc.pl.scatter(
-        anndata_annot, 
-        color='pct_counts_mt', 
-        x='total_counts', 
-        y='n_genes_by_counts', 
-        save='.qc.lib_detect_mito.pdf', 
-        color_map='viridis',
-        show=False
-    )
-    sc.pl.scatter(
-        anndata_annot, 
-        color='percent_ribo_p', 
-        x='total_counts', 
-        y='n_genes_by_counts', 
-        save='.qc.lib_detect_ribo_p.pdf', 
-        color_map='viridis',
-        show=False
-    )
+    scatter_kwargs = {
+        'x': 'total_counts', 
+        'y': 'n_genes_by_counts', 
+        'color_map': 'viridis', 
+        'show': False
+    }
+    sc.pl.scatter(anndata_annot, color='pct_counts_mt', save='.qc.lib_detect_mito.pdf', **scatter_kwargs)
+    sc.pl.scatter(anndata_annot, color='percent_ribo_p', save='.qc.lib_detect_ribo_p.pdf', **scatter_kwargs)
     
     # Filtering
     anndata_filtered = filter_by_attr(anndata=anndata_annot, pct_count=(None, 20), genes_by_count=(200, 8000), total_counts=(None, 5e4))
 
     # Plots after filtering
-    sc.pl.scatter(
-        anndata_filtered, 
-        color='pct_counts_mt', 
-        x='total_counts', 
-        y='n_genes_by_counts', 
-        frameon=True, 
-        save='.qc.lib_detect_mito.filter.pdf', 
-        color_map='viridis',
-        show=False
-    )
-    sc.pl.scatter(
-        anndata_filtered,
-        color='percent_ribo_p',
-        x='total_counts',
-        y='n_genes_by_counts',
-        frameon=True,
-        save='.qc.lib_detect_ribo_p.filter.pdf',
-        color_map='viridis',
-        show=False
-    )
-    sc.pl.scatter(
-        anndata_filtered,
-        color='batch',
-        x='total_counts',
-        y='n_genes_by_counts',
-        frameon=True,
-        save='.qc.lib_detect_batch.filter.pdf',
-        color_map='viridis',
-        show=False
-    )
+    sc.pl.scatter(anndata_filtered, color='pct_counts_mt', frameon=True, save='.qc.lib_detect_mito.filter.pdf', **scatter_kwargs)
+    sc.pl.scatter(anndata_filtered,color='percent_ribo_p', frameon=True, save='.qc.lib_detect_ribo_p.filter.pdf', **scatter_kwargs)
+    sc.pl.scatter(anndata_filtered, color='batch', frameon=True, save='.qc.lib_detect_batch.filter.pdf', **scatter_kwargs)
 
     # Filter out genes with 0 cells
-    sc.pp.filter_genes(anndata_filtered, min_cells=1)
+    sc.pp.filter_genes(anndata_filtered, min_cells=1, inplace=True, copy=True)
 
     # Save anndata before QC step
     write_anndata(anndata_filtered, interDir, "pasca_postqc.h5ad")
+    return anndata_filtered
 
+def postprocess(anndata_filtered):
     # scran pipeline in R
     anndata_scran = r_pipeline(anndata_filtered)
 
@@ -344,6 +326,14 @@ def preprocess():
     # Take each entry in the counts matrix (call it x) and replace it with log(x + 1)
     sc.pp.log1p(anndata_scran_sparse)
     write_anndata(anndata_scran_sparse, interDir, "pasca_log1p.h5ad")
+    generate_liger_input(anndata_scran_sparse)
+
+def preprocess():
+    anndata_dirs, anndata_sparse = aggregate(inDir)
+    anndata_annot = annotate(anndata_sparse, anndata_dirs)
+    sys.exit(0)
+    anndata_filtered = quality_control(anndata_annot)
+    postprocess(anndata_filtered)
 
 if __name__ == "__main__":
     preprocess()
