@@ -10,6 +10,7 @@ import pathlib
 import git
 from tqdm import tqdm, trange
 import click
+from helper import write_anndata
 
 import rpy2.robjects as ro
 from rpy2.robjects.packages import importr
@@ -95,14 +96,6 @@ def _annotate(anndata: sc.AnnData, directories: list[str]) -> None:
     anndata.obs['condition'] = anndata.obs['batch'].map(condition_map)
     anndata.obs['sampleID'] = anndata.obs['batch'].map(sample_id_map)
     return anndata
-
-def write_anndata(anndata: sc.AnnData, dir: pathlib.Path, filename: str) -> None:
-    """
-    Writes scanpy AnnData object to disk in specified directory with filename
-    """
-    fullpath = pathlib.Path(dir, filename)
-    click.echo(f"Writing AnnData object to {fullpath}")
-    anndata.write(fullpath)
 
 def adata_var_get(anndata: sc.AnnData, prefix_l=[], gene_l=[]):
     vars_l = set()
@@ -331,7 +324,6 @@ def postprocess(anndata_filtered):
 def preprocess():
     anndata_dirs, anndata_sparse = aggregate(inDir)
     anndata_annot = annotate(anndata_sparse, anndata_dirs)
-    sys.exit(0)
     anndata_filtered = quality_control(anndata_annot)
     postprocess(anndata_filtered)
 
