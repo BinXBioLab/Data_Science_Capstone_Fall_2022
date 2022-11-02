@@ -167,11 +167,6 @@ def filter_by_attr(anndata: sc.AnnData,  pct_count, genes_by_count, total_counts
     return temp
 
 def r_pipeline(anndata: sc.AnnData):
-    # click.echo("Writing anndata.X.T to a parquet file for use in R...")
-    # # pdb.set_trace()
-    # df = pd.DataFrame(anndata.X.T.toarray())
-    # df.columns = [str(col) for col in df.columns]
-    # df.to_parquet(os.path.join(git_root, "raw_data", "inter-test", ""))
     progress = trange(6, desc='R single cell experiment pipeline')
     
     # Importing R package scran
@@ -230,7 +225,7 @@ def generate_liger_input(anndata: sc.AnnData) -> None:
         pathlib.Path(interDir,'pasca_log1p.metadata.csv')
     )
 
-def aggregate(root):
+def aggregate(root, aggregated_filename):
     # Within the raw folder, get all directory paths as absolute paths
     anndata_dirs = [os.path.join(root, p) for p in os.listdir(root) if os.path.isdir(os.path.join(root, p))]
     
@@ -241,7 +236,7 @@ def aggregate(root):
     anndata_sparse = sparsify(anndata_concat, make_vars_unique=True)
 
     # Store the unprocessed, concatenated data
-    write_anndata(anndata_sparse, interDir, "pasca_aggr.h5ad")
+    write_anndata(anndata_sparse, interDir, aggregated_filename)
     return anndata_dirs, anndata_sparse
 
 def annotate(anndata_sparse, anndata_dirs):
@@ -272,7 +267,7 @@ def annotate(anndata_sparse, anndata_dirs):
     write_anndata(anndata_annot, interDir, "pasca_preqc.h5ad")
     return anndata_annot
 
-def quality_control(anndata_annot):
+def quality_control(anndata_annot, **kwargs):
     # Plots before filtering
     scatter_kwargs = {
         'x': 'total_counts', 
@@ -284,7 +279,7 @@ def quality_control(anndata_annot):
     sc.pl.scatter(anndata_annot, color='percent_ribo_p', save='.qc.lib_detect_ribo_p.pdf', **scatter_kwargs)
     
     # Filtering
-    anndata_filtered = filter_by_attr(anndata=anndata_annot, pct_count=(None, 20), genes_by_count=(200, 8000), total_counts=(None, 5e4))
+    anndata_filtered = filter_by_attr(anndata=anndata_annot, **kwargs)
 
     # Plots after filtering
     sc.pl.scatter(anndata_filtered, color='pct_counts_mt', frameon=True, save='.qc.lib_detect_mito.filter.pdf', **scatter_kwargs)
@@ -321,10 +316,33 @@ def postprocess(anndata_filtered):
     write_anndata(anndata_scran_sparse, interDir, "pasca_log1p.h5ad")
     generate_liger_input(anndata_scran_sparse)
 
-def preprocess():
-    anndata_dirs, anndata_sparse = aggregate(inDir)
+@click.command()
+@click.option('--input', default=inDir, help='Path to folder containing all 10x Genomics subfolders')
+@click.option('--pct_count_lower', default=None, help='Lower bound of percent counts to filter')
+@click.option('--pct_count_upper', default=20, help='Upper bound of percent counts to filter')
+@click.option('--genes_by_count_lower', default=200, help='Lower bound of genes by counts to filter')
+@click.option('--genes_by_count_upper', default=8000, help='Upper bound of genes by counts to filter')
+@click.option('--total_counts_lower', default=None, help='Lower bound of total counts to filter')
+@click.option('--total_counts_upper', default=5e4, help='Upper bound of total counts to filter')
+@click.option('--aggregated_filename', default="pasca_aggr.h5ad", help='Filename for concatenated counts + labels h5ad data file')
+def preprocess(
+    input, 
+    pct_count_lower, 
+    pct_count_upper, 
+    genes_by_count_lower, 
+    genes_by_count_upper, 
+    total_counts_lower, 
+    total_counts_upper, 
+    aggregated_filename) -> None:
+    
+    anndata_dirs, anndata_sparse = aggregate(input, aggregated_filename)
     anndata_annot = annotate(anndata_sparse, anndata_dirs)
-    anndata_filtered = quality_control(anndata_annot)
+    qc_keyword_arguments = {
+        "pct_count":(pct_count_lower, pct_count_upper), 
+        "genes_by_count":(genes_by_count_lower, genes_by_count_upper), 
+        "total_counts":(total_counts_lower, total_counts_upper)
+    }
+    anndata_filtered = quality_control(anndata_annot, qc_keyword_arguments)
     postprocess(anndata_filtered)
 
 if __name__ == "__main__":
