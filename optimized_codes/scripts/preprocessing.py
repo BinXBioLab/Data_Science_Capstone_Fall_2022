@@ -35,6 +35,12 @@ interDir = pathlib.Path(topDir,"inter-test")
 def concatenate(directories: list[str]) -> sc.AnnData:
     """
     Concatenates scanpy annotation data from multiple samples into 1 large object
+
+    Args:
+        directories (list[str]): List of folder locations for 10x Genomic data
+
+    Returns:
+        sc.AnnData: All controls and patients concatenated
     """
     click.echo(f"Reading in 10x Genomics counts and metadata")
 
@@ -59,6 +65,16 @@ def concatenate(directories: list[str]) -> sc.AnnData:
     return concatenated
 
 def sparsify(anndata: sc.AnnData, make_vars_unique: bool = True) -> sc.AnnData:
+    """
+    Transform counts matrix into compressed sparse row (CSR) format to save memory/disk space
+
+    Args:
+        anndata (sc.AnnData): Annotated data object to sparsify
+        make_vars_unique (bool): Whether or not to make the variable names unique (default True)
+
+    Returns:
+        sc.AnnData: Annotated data with sparsified counts
+    """
     click.echo(f"Sparsifying AnnData counts matrix")
     
     # Ensures we're not storing redundant variables in data
@@ -71,7 +87,11 @@ def sparsify(anndata: sc.AnnData, make_vars_unique: bool = True) -> sc.AnnData:
 
 def _annotate(anndata: sc.AnnData, directories: list[str]) -> None:
     """
-    Annotates scanpy AnnData object with condition and sample IDs from file names
+    Internal function to annotate object with condition and sample IDs from file names
+
+    Args:
+        anndata (sc.AnnData): Annotated data object
+        directories (list[str]): List of 10x Genomics folders (each with matrix, metadata, labels)
     """
 
     click.echo(f"Annotating AnnData object")
@@ -98,18 +118,34 @@ def _annotate(anndata: sc.AnnData, directories: list[str]) -> None:
     return anndata
 
 def adata_var_get(anndata: sc.AnnData, prefix_l=[], gene_l=[]):
+    """
+    Get unique variables?
+
+    Args:
+        anndata (sc.AnnData): Annotated data object
+        prefix_l (list): ???
+        gene_l (list): ???
+
+    Returns:
+        sc.AnnData: Annotated data object
+    """
     vars_l = set()
+    
     for prefix in prefix_l:
         vars_l |= set(anndata.var.index[anndata.var.index.str.startswith(prefix)])
     vars_l |= set(anndata.var.index[anndata.var.index.isin(gene_l)])
-    if vars_l:
-        return anndata[:, list(vars_l)]
-    else:
-        return None
+    
+    return anndata[:, list(vars_l)] if vars_l else None
 
-def mito_qc_metrics(anndata: sc.AnnData) -> pd.DataFrame:
+def mito_qc_metrics(anndata: sc.AnnData) -> sc.AnnData:
     """
     Uses mitochondrial genes to calculate quality control metrics for annotation data
+
+    Args:
+        anndata (sc.AnnData): Annotated data object
+
+    Returns:
+        sc.AnnData: Same annotated data object as input
     """
 
     anndata.var['mt'] = anndata.var_names.str.startswith('MT-')  # annotate the group of mitochondrial genes as 'mt'
@@ -117,6 +153,15 @@ def mito_qc_metrics(anndata: sc.AnnData) -> pd.DataFrame:
     return anndata
 
 def augment_with_ribo_data(anndata: sc.AnnData, ribo_p: any) -> None:
+    """
+    Add ribosomal proteins
+    
+    Args:
+        anndata (sc.AnnData): Annotated data object
+
+    Returns:
+        sc.AnnData: Same annotated data object as input
+    """
     anndata.obs['n_counts_ribo_p'] = ribo_p.X.sum(axis=1).A1.tolist()
 
     # TODO: Turn this into multiple functions for improved readability
@@ -124,7 +169,15 @@ def augment_with_ribo_data(anndata: sc.AnnData, ribo_p: any) -> None:
 
     return anndata
 
-def create_qc_violin_plots(anndata: sc.AnnData, to_plot):
+def create_qc_violin_plots(anndata: sc.AnnData, to_plot: list[str]) -> None:
+    """
+    Create violin plots for the purposes of visual quality control
+
+    Args:
+        anndata (sc.AnnData): Annotated data object
+        to_plot (list[str]): List of genes to plot
+    """
+
     progress = trange(3, desc='Creating quality control violin plots')
 
     # Basic QC
@@ -143,6 +196,18 @@ def create_qc_violin_plots(anndata: sc.AnnData, to_plot):
     progress.update(1)
 
 def filter_by_attr(anndata: sc.AnnData,  pct_count, genes_by_count, total_counts) -> sc.AnnData:
+    """
+    Filter counts matrix based on percent counts, number of genes, and total cell counts 
+
+    Args:
+        anndata (sc.AnnData): Annotated data object
+        pct_count (tuple): Bounds for percent count filtering of the form (lower bound | None, upper bound | None)
+        genes_by_count (tuple): Bounds for filtering low or high gene counts of the form (lower bound | None, upper bound | None)
+        total_counts (tuple): Bounds for filtering low and/or high total counts of the form (lower bound | None, upper bound | None)
+
+    Returns:
+        sc.AnnData: Annotated data object
+    """
     # Perform a deep copy so operations are not done in-place
     temp = anndata.copy()
 
@@ -167,6 +232,12 @@ def filter_by_attr(anndata: sc.AnnData,  pct_count, genes_by_count, total_counts
     return temp
 
 def r_pipeline(anndata: sc.AnnData):
+    """
+    Run scran and quickClister on anndata using R
+
+    Args:
+        anndata (sc.AnnData): Annotated data object
+    """
     progress = trange(6, desc='R single cell experiment pipeline')
     
     # Importing R package scran
@@ -214,6 +285,12 @@ def r_pipeline(anndata: sc.AnnData):
     return anndata
 
 def generate_liger_input(anndata: sc.AnnData) -> None:
+    """
+    Create appropriate counts and metadata files that can be used in LigeR
+
+    Args:
+        anndata (sc.AnnData): Annotated data object
+    """
     # Counts file needed by liger
     anndata.X = anndata.layers['counts']
 
@@ -221,11 +298,19 @@ def generate_liger_input(anndata: sc.AnnData) -> None:
     anndata.to_df().to_parquet(pathlib.Path(interDir, 'pasca_log1p.parquet')) 
 
     # Metadata file needed by liger
-    sc.get.obs_df(anndata, keys=anndata.obs_keys()).to_csv(
-        pathlib.Path(interDir,'pasca_log1p.metadata.csv')
-    )
+    sc.get.obs_df(anndata, keys=anndata.obs_keys()).to_csv(pathlib.Path(interDir,'pasca_log1p.metadata.csv'))
 
 def aggregate(root, aggregated_filename):
+    """High level function which combines loading, concatenating, and sparsifying the data
+
+    Args:
+        root (str): Root directory where 10x Genomics files are stored
+        aggregated_filename (str): Name to give the aggregated anndata object when saving to disk
+
+    Returns:
+        list[str]: List of directories containing original counts data files
+        sc.AnnData: Sparsified, annotated data
+    """
     # Within the raw folder, get all directory paths as absolute paths
     anndata_dirs = [os.path.join(root, p) for p in os.listdir(root) if os.path.isdir(os.path.join(root, p))]
     
@@ -239,7 +324,17 @@ def aggregate(root, aggregated_filename):
     write_anndata(anndata_sparse, interDir, aggregated_filename)
     return anndata_dirs, anndata_sparse
 
-def annotate(anndata_sparse, anndata_dirs):
+def annotate(anndata_sparse: sc.AnnData, anndata_dirs: list[str]):
+    """
+    High-level function which combines annotation, getting unique variables, and augmenting with ribosomal data
+
+    Args:
+        anndata_sparse (sc.AnnData): Sparsified annotated data object
+        anndata_dirs (list[str]): List of directories containing original counts data files
+
+    Returns:
+        sc.AnnData: Returns annodated data that's been augmented with info about ribosomal proteins
+    """
     # Annotate control/patient labels according to directory names
     anndata_annot = _annotate(anndata_sparse, anndata_dirs)
     
@@ -267,7 +362,16 @@ def annotate(anndata_sparse, anndata_dirs):
     write_anndata(anndata_annot, interDir, "pasca_preqc.h5ad")
     return anndata_annot
 
-def quality_control(anndata_annot, **kwargs):
+def quality_control(anndata_annot: sc.AnnData, **kwargs):
+    """High-level function which performs all quality control steps including plotting and filtering
+
+    Args:
+        anndata_annot (sc.AnnDat): Annotated data that's been augmented with ribosomal proteins
+        **kwargs (dict): Additional keyword arguments to pass to attribute filtering function
+
+    Returns:
+        sc.AnnData: Annotated data object after filtering by percent counts, gene counts, and total counts
+    """
     # Plots before filtering
     scatter_kwargs = {
         'x': 'total_counts', 
@@ -293,7 +397,13 @@ def quality_control(anndata_annot, **kwargs):
     write_anndata(anndata_filtered, interDir, "pasca_postqc.h5ad")
     return anndata_filtered
 
-def postprocess(anndata_filtered):
+def postprocess(anndata_filtered: sc.AnnData):
+    """
+    Final steps in preprocessing pipeline including running scran, quickCluster, and log transforming counts
+
+    Args:
+        anndata_filtered (sc.AnnData): Annotated data object after filtering by percent counts, gene counts, and total counts
+    """
     # scran pipeline in R
     anndata_scran = r_pipeline(anndata_filtered)
 
@@ -326,14 +436,27 @@ def postprocess(anndata_filtered):
 @click.option('--total_counts_upper', default=5e4, help='Upper bound of total counts to filter')
 @click.option('--aggregated_filename', default="pasca_aggr.h5ad", help='Filename for concatenated counts + labels h5ad data file')
 def preprocess(
-    input, 
-    pct_count_lower, 
-    pct_count_upper, 
-    genes_by_count_lower, 
-    genes_by_count_upper, 
-    total_counts_lower, 
-    total_counts_upper, 
+    input: str, 
+    pct_count_lower: int | None, 
+    pct_count_upper: int | None, 
+    genes_by_count_lower: int | None, 
+    genes_by_count_upper: int | None, 
+    total_counts_lower: float | None, 
+    total_counts_upper: float | None, 
     aggregated_filename) -> None:
+    """
+    Top-level function which executes all the high-level functions
+
+    Args:
+        input (str): Root directory of 10x Genomics files
+        pct_count_lower (int | None): lower bound for percent count filtering
+        pct_count_upper (int | None): upper bound for percent count filtering
+        genes_by_count_lower (int | None): lower bound for gene count filtering
+        genes_by_count_upper (int | None): upper bound for gene count filtering
+        total_counts_lower (float | None): lower bound for total count filtering
+        total_counts_upper (float | None): upper bound for total count filtering
+        aggregated_filename (str): Filename for aggregated annotated data object when saving to disk
+    """
     
     anndata_dirs, anndata_sparse = aggregate(input, aggregated_filename)
     anndata_annot = annotate(anndata_sparse, anndata_dirs)
