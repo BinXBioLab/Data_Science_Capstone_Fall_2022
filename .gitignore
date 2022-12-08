@@ -3,6 +3,7 @@
 
 raw_data/Pasca_scRNAseq/inter/*
 raw_data/Pasca_scRNAseq/inter-test/*
+raw_data/Pasca_scRNAseq/inter.zip
 
 optimized_codes/scripts/cache/*
 optimized_codes/scripts/figures/*
