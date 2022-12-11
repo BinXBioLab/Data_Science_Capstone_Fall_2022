@@ -29,7 +29,9 @@ Coming soon...
 
 ## General structure
 
-The code is separated into two pipelines: **Tangram_GPU** and **Tangram_CPU**. **Tangram_GPU** will be generating the map that can be used in **Tangram_CPU**. **Tangram_CPU** will be running all the experiments. The only requirement is to choose the same marker genes. 
+The code is separated into two pipelines: **Tangram_GPU** and **Tangram_CPU**. 
+1. **Tangram_GPU** will be generating the map that can be used in **Tangram_CPU**. 
+2. **Tangram_CPU** will be running all the experiments.
 
 ## Tangram_GPU
 ### Input
