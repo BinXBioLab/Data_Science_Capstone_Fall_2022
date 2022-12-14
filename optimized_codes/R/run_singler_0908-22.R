@@ -21,32 +21,52 @@ library(purrr)
 library(tidyr)
 library(BiocParallel)
 library (lubridate)
+library(arrow)
 
 #library(feather) # this will cause segfault problem. use arrow instead
     ## need to conda install -c conda-forge r-arrow
     ## version 8.0.0 works
-library(arrow)
 
+# Check that we have the correct number of arguments
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) == 0) {
+    stop(
+        "No arguments found. Format: Rscript --vanilla <counts> <metadata>",
+        call. = FALSE
+    )
+} else if (length(args) == 1) {
+    stop(
+        "Only 1 argument found. Format: Rscript --vanilla <counts> <metadata>",
+        call. = FALSE
+    )
+} else if (length(args) > 2) {
+    stop(
+        "Too many arguments. Format: Rscript --vanilla <counts> <metadata>",
+        call. = FALSE
+    )
+}
     
-refset <- 'nowakowski'
-label_def <- 'med'
-targetset <- 'setd1a_b2'
-rundate <-today()
+refset <- "nowakowski"
+label_def <- "med"
+targetset <- "setd1a_b2"
+rundate <- today()
 
 ## define inputs and outputs here
-input1 = 'nowakowski_090422_v1.cpm.fth'
-input2 = 'setd1a_b2_090422_v1.cpm.fth'
-input3 = 'nowakowski.label_med.csv'
+input1 <- "nowakowski_090422_v1.cpm.fth"
+input2 <- "setd1a_b2_090422_v1.cpm.fth"
+input3 <- "nowakowski.label_med.csv"
 
-out1 =paste(targetset, refset,label_def,rundate,'singler.csv', sep='_')
-out2 = paste(targetset, refset,label_def,rundate, 'noglyc_singler.csv', sep='_')
+out1 <- paste(targetset, refset, label_def, rundate, "singler.csv", sep="_")
+out2 <- paste(targetset, refset, label_def, rundate, "noglyc_singler.csv", sep="_")
 
 # two runs. One with and one without the filte
-for (test in c('', 'noglyc')) {
-    rm(list=setdiff(ls(), 'test'))
+for (test in c("", "noglyc")) {
+    rm(list = setdiff(ls(), "test"))
 
 
-# if errors, check the format of input files. It should use cellname as rownames and gene names as colnames
+# if errors, check the format of input files.
+# It should use cellname as rownames and gene names as colnames
     ref <- as.data.frame(read_feather(input1))
     rownames(ref) <- ref[,"Cell"]
     ref <- ref[,-1]
