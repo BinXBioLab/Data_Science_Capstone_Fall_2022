@@ -12,13 +12,13 @@
 
 # Rscript run_liger.R
 
-# or for interactively 
+# or for interactively
 
 # R
 
 ### Francesco script start here
 # Set max virtual memory size large enough to handle in-memory operations
-Sys.setenv('R_MAX_VSIZE'=32000000000)
+Sys.setenv("R_MAX_VSIZE"=48000000000)
 
 # Check that we have the correct number of arguments
 args <- commandArgs(trailingOnly = TRUE)
