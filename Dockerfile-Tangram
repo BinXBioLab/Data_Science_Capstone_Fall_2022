@@ -3,11 +3,13 @@ FROM python:3.8.13
 # Update packages and install NVIDIA Drivers for Docker
 apt-get update
 apt-get install -y nvidia-docker2
+apt-get update
 
 # Copy Tangram specific requirements to container
 COPY requirements/tangram-requirements.txt /requirements.txt
 
 # Install Tangram and its dependencies
+RUN pip install numpy
 RUN pip install -r requirements.txt
 
 # Check to make sure that Tangram is installed
