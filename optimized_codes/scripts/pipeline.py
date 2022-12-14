@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pdb
 import sys
 import pickle
 import scanpy as sc
@@ -95,7 +96,7 @@ def download_and_process_reference(
 
     # Combine counts and metadata
     h_ad = sc.read_text(matrix_filepath).transpose()
-    meta = pd.read_csv(meta_filepath)
+    meta = pd.read_csv(meta_filepath, sep = '\t')
     h_ad.obs = meta
     anndata = sc.AnnData(h_ad)
 
@@ -402,7 +403,7 @@ def human_pfc_data(
         wget.download("https://cells.ucsc.edu/cortex-dev/meta.tsv", meta_filepath)
     
     meta = pd.read_csv(meta_filepath, sep='\t')
-    exprMatrix = sc.read_text(exprMatrix)
+    exprMatrix = sc.read_text(exprMatrix, sep='\t')
 
     h_ad = exprMatrix.transpose()
     h_ad.obs = meta
@@ -413,7 +414,8 @@ def human_pfc_data(
 
 @click.command()
 @click.option('--input', '-i', type=click.Path(exists=True), default=None, help='Liger output file')
-def run():
+def run(input):
+    click.echo("Reading output of Liger + Preprocessing")
     # Read files
     path_to_anndata = os.path.join(interDir, "pasca_log1p.h5ad")
     path_to_liger = os.path.join(interDir, "pasca.liger.csv")
@@ -422,21 +424,23 @@ def run():
     adata = sc.read(path_to_anndata)
 
     # Generating figures based on Liger output
+    click.echo("Generating figures based on Liger output")
     adata.obsm['X_liger'] = df_liger.loc[adata.obs_names, :].values
     adata = generate_figures(adata)
     
     adata.uns['log1p']["base"] = None # To avoid KeyError: 'base' with rank_gene_groups()
     rank_genes_and_save(adata)
-    sys.exit(0)
 
-    # ???
+    click.echo("Reading and processing post quality control data")
     postqc_path = os.path.join(interDir, "pasca_postqc.h5ad")
     adata = sc.read(postqc_path)
     df = pd.DataFrame.sparse.from_spmatrix(adata.X, index=adata.obs_names, columns=adata.var_names)
 
     # filter genes?
+    click.echo("Filtering genes")
     df = df.loc[:, ((df > 0).sum(axis=0) >= 1)]
 
+    click.echo("Downloading and processing reference data")
     ad_nowakowski = download_and_process_reference()
     sc.pp.filter_cells(ad_nowakowski, min_genes=200)
     sc.pp.filter_genes(ad_nowakowski, min_cells=1)
@@ -447,6 +451,7 @@ def run():
 
     # df is the target dataframe to be exported to R 
     # generate the ref dataframe with CellID as index to be exported to R
+    click.echo("Generating reference dataframe to be exported to R")
     df_nowakowski = pd.DataFrame(
         ad_nowakowski.X,
         index=ad_nowakowski.obs['Cell'],
@@ -476,6 +481,7 @@ def run():
         header=True
     )
 
+    click.echo("Start of part 7d in original notebook")
     ## 7d START ## 
     # Presumbly df refers to earlier df?
     res1 = (df * 1e6).divide(df.sum(axis=1), axis='rows')
@@ -487,8 +493,9 @@ def run():
     c_res2 = csr_matrix(res2)
     df2 = pd.DataFrame(c_res2.toarray(),index=df_nowakowski.index,columns=df_nowakowski.columns)
     df2.reset_index().to_parquet(os.path.join(interDir, "nowakowski_pasca.cpm.parquet")) # Using parquet instead of feather
-    ## 7d END ## 
+    ## 7d END ##
 
+    click.echo("Start of part 7e in original notebook")
     ## 7e START ##
     run_singler(os.path.join(interDir, "pasca.cpm.parquet"))
     ## 7e END ## 
