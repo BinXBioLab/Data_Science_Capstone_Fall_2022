@@ -1,0 +1,10 @@
+FROM python:3.8.13
+
+# Copy CellphoneDB specific requirements
+COPY requirements/cpdb-requirements.txt /requirements.txt
+
+# Install CellphoneDB and its dependencies
+RUN pip install -r requirements.txt
+
+# Check to make sure that CellphoneDB works
+RUN cellphonedb database list_remote
