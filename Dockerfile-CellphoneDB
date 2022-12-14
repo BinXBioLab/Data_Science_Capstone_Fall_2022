@@ -14,11 +14,17 @@ RUN wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc |
 RUN add-apt-repository 'deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/'
 RUN apt install --no-install-recommends -y r-base
 
-# Copy CellphoneDB specific requirements
-COPY requirements/cpdb-requirements.txt /requirements.txt
+# # Copy CellphoneDB specific requirements
+# COPY requirements/cpdb-requirements.txt /requirements.txt
 
-# Install CellphoneDB and its dependencies
-RUN pip install -r requirements.txt
+# # Install CellphoneDB and its dependencies
+# RUN pip install numpy
+# RUN pip install -r requirements.txt
+
+# Alternative: manually install numpy, CellphoneDB, and rpy2, but don't specify versions
+RUN pip install numpy
+RUN pip install rpy2
+RUN pip install cellphonedb
 
 # Check to make sure that CellphoneDB works
 RUN cellphonedb database list_remote
