@@ -11,6 +11,3 @@ COPY requirements/tangram-requirements.txt /requirements.txt
 # Install Tangram and its dependencies
 RUN pip install numpy
 RUN pip install -r requirements.txt
-
-# Check to make sure that Tangram is installed
-RUN pip list | grep tangram
