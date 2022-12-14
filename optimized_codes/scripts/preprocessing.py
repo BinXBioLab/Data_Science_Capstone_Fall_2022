@@ -21,12 +21,12 @@ anndata2ri.activate()      # AnnData interface from python <--> R
 prefix = "pasca"
 
 
-def write_anndata(anndata: sc.AnnData, dir: pathlib.Path,
+def write_anndata(anndata: sc.AnnData, directory: pathlib.Path,
                   filename: str) -> None:
     """
     Writes scanpy AnnData object to disk in specified directory with filename
     """
-    fullpath = pathlib.Path(dir, filename)
+    fullpath = pathlib.Path(directory, filename)
     click.echo(f"Writing AnnData object to {fullpath}")
     anndata.write(fullpath)
 
@@ -62,7 +62,7 @@ def concatenate(directories: list, cache=False) -> sc.AnnData:
         raw_data.append(sample)
 
     # Take the first data object, and concatenate with the remaining objects
-    concatenated = raw_data[0].concatenate(*raw_data[1:])]
+    concatenated = raw_data[0].concatenate(*raw_data[1:])
     return concatenated
 
 
@@ -103,12 +103,11 @@ def _annotate(anndata: sc.AnnData, directories: list) -> None:
 
     # Check that data is labeled in a way expected by remaining logic
     try:
-        for dir in basenames:
-            condition = dir.split("_")[-2].lower()
+        for directory in basenames:
+            condition = directory.split("_")[-2].lower()
             assert (condition == 'control') or (condition == 'patient')
     except AssertionError:
-        print(
-            f"This path name doesn't contain the correct condition label in the correct location: {dir}")
+        print(f"This path name doesn't contain the correct condition label in the correct location: {directory}")
         print("Please rename the path")
         sys.exit(255)
 
