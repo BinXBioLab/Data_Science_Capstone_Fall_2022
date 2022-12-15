@@ -18,3 +18,8 @@ RUN apt install --no-install-recommends -y r-base
 RUN R -e "install.packages(c('BiocManager'))"
 RUN R -e "BiocManager::install(c('Seurat', 'SingleR'))"
 RUN R -e "install.packages(c('Rcpp', 'ggplot2', 'liger', 'reshape2', 'plyr', 'MAST', 'scran', 'gam', 'clusterExperiment'))"
+
+# Copy requirements to container and install them
+COPY requirements/minimal-requirements.txt /requirements.txt
+RUN pip install numpy
+RUN pip install -r requirements.txt
