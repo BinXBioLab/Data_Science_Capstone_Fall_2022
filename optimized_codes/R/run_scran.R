@@ -6,7 +6,7 @@ mat <- Matrix::readMM("optimized_codes/scripts/test.mtx")
 cl <- quickCluster(mat)
 
 mysce <- computeSumFactors(
-    SingleCellExperiment(list(counts=mat)),
+    SingleCellExperiment(list(counts = mat)),
     clusters = cl
 )
 

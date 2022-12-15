@@ -134,7 +134,7 @@ def visualize_scrna(adata):
         cmap='viridis',
         size=5,
         wspace=.3,
-        save=f'.Annotation_coarse.pdf',
+        save='.Annotation_coarse.pdf',
         show=False
     )
 
@@ -411,6 +411,94 @@ def human_pfc_data(
     h_ad.write(output_path)
 
     return h_ad
+
+def post_liger_pre_singler():
+    click.echo("Reading output of Liger + Preprocessing")
+    # Read files
+    path_to_anndata = os.path.join(interDir, "pasca_log1p.h5ad")
+    path_to_liger = os.path.join(interDir, "pasca.liger.csv")
+    
+    df_liger = pd.read_csv(path_to_liger, index_col=0)
+    adata = sc.read(path_to_anndata)
+
+    # Generating figures based on Liger output
+    click.echo("Generating figures based on Liger output")
+    adata.obsm['X_liger'] = df_liger.loc[adata.obs_names, :].values
+    adata = generate_figures(adata)
+    
+    adata.uns['log1p']["base"] = None # To avoid KeyError: 'base' with rank_gene_groups()
+    rank_genes_and_save(adata)
+
+    click.echo("Reading and processing post quality control data")
+    postqc_path = os.path.join(interDir, "pasca_postqc.h5ad")
+    adata = sc.read(postqc_path)
+    df = pd.DataFrame.sparse.from_spmatrix(adata.X, index=adata.obs_names, columns=adata.var_names)
+
+    # filter genes?
+    click.echo("Filtering genes")
+    df = df.loc[:, ((df > 0).sum(axis=0) >= 1)]
+
+    click.echo("Downloading and processing reference data")
+    ad_nowakowski = download_and_process_reference()
+    sc.pp.filter_cells(ad_nowakowski, min_genes=200)
+    sc.pp.filter_genes(ad_nowakowski, min_cells=1)
+    genes = df.columns.intersection(ad_nowakowski.var_names)
+
+    df = df.loc[:, genes]
+    ad_nowakowski = ad_nowakowski[:, genes].copy()
+
+    # df is the target dataframe to be exported to R 
+    # generate the ref dataframe with CellID as index to be exported to R
+    click.echo("Generating reference dataframe to be exported to R")
+    df_nowakowski = pd.DataFrame(
+        ad_nowakowski.X,
+        index=ad_nowakowski.obs['Cell'],
+        columns=ad_nowakowski.var_names
+    )
+
+    # get the annotation (WGCNAcluster in this case) for each CellID (Cell in this case)
+    ad_nowakowski_label = pd.DataFrame(
+        ad_nowakowski.obs["WGCNAcluster"].values,
+        index=ad_nowakowski.obs['Cell']
+    )
+    ad_nowakowski_label.columns = ['WGCNAcluster']
+    ad_nowakowski_label.to_csv(os.path.join(interDir, 'nowakowski.label_bx.csv'), sep=',', header=True)
+    
+    # Creating noglyc version of nowakowski?
+    ad_nowakowski_noglyc = ad_nowakowski[
+        ~(ad_nowakowski.obs['WGCNAcluster'] == 'Glyc'),
+        :
+    ].copy()
+    ad_nowakowski_noglyc_label = pd.DataFrame(ad_nowakowski_noglyc.obs)
+    ad_nowakowski_noglyc_label_f = ad_nowakowski_noglyc_label[["WGCNAcluster"]]
+    ad_nowakowski_noglyc_label_f.index = ad_nowakowski_noglyc_label["Cell"]
+    ad_nowakowski_noglyc_label_f.to_csv(
+        os.path.join(interDir, 
+        'nowakowski_noglyc.label_bx.csv'), 
+        sep=',', 
+        header=True
+    )
+
+    click.echo("Start of part 7d in original notebook")
+    ## 7d START ## 
+    # Presumbly df refers to earlier df?
+    res1 = (df * 1e6).divide(df.sum(axis=1), axis='rows')
+    c_res1 = csr_matrix(res1)
+    df1 = pd.DataFrame(c_res1.toarray(), index=df.index, columns=df.columns)
+    df1.reset_index().to_parquet(os.path.join(interDir, "pasca.cpm.parquet")) # Using parquet instead of feather
+
+    res2 = (df_nowakowski * 1e6).divide(df_nowakowski.sum(axis=1), axis='rows')
+    c_res2 = csr_matrix(res2)
+    df2 = pd.DataFrame(c_res2.toarray(),index=df_nowakowski.index,columns=df_nowakowski.columns)
+    df2.reset_index().to_parquet(os.path.join(interDir, "nowakowski_pasca.cpm.parquet")) # Using parquet instead of feather
+    ## 7d END ##
+
+def post_singler_pre_mast():
+    return
+
+def post_mast():
+    return
+
 
 @click.command()
 @click.option('--input', '-i', type=click.Path(exists=True), default=None, help='Liger output file')
