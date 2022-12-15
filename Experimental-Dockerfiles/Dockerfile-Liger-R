@@ -1,4 +1,4 @@
-FROM r-base:4.1
+FROM r-base:4.1.0
 
 # Install R dependencies
 RUN R -e "install.packages(c('BiocManager'))"
