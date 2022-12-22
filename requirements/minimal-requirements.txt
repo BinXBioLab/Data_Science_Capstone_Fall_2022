@@ -5,12 +5,10 @@ gseapy==1.0.0
 jupyter==1.0.0
 jupyterlab==3.5.0
 pipdeptree==2.3.3
-pyan3==1.2.0
 pyarrow==9.0.0
 pyOpenSSL==22.0.0
 PyQt5-sip==12.11.0
 PySocks==1.7.1
-rpy2==3.5.4
 sinfo==0.3.4
 sip==6.6.2
 squidpy==1.2.3
@@ -18,5 +16,6 @@ tables==3.7.0
 tangram-sc==1.0.3
 TBB==0.2
 testpath==0.6.0
+tzlocal==4.2
 wget==3.2
 wheel==0.37.1
