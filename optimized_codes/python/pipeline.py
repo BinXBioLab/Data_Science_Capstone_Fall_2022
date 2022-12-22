@@ -40,6 +40,14 @@ sc.set_figure_params(
 sc.settings.figdir = os.path.join(outDir, 'fig_supp')
 sc.settings.n_jobs = 4
 
+@click.group()
+def cli():
+    """
+    scRNA Analysis Pipeline: Automated sequence of data analyses for scRNA sequencing data
+    
+    Visit https://github.com/BinXBioLab/Data_Science_Capstone_Fall_2022 for usage instructions and help
+    """
+
 def generate_figures(anndata: sc.AnnData) -> None:
     # Compute neighborhood graph
     # use_rep means use X_liger result to represent X for calculation
@@ -101,9 +109,6 @@ def download_and_process_reference(
     anndata = sc.AnnData(h_ad)
 
     return anndata
-
-def run_singler(path):
-    return path
 
 def visualize_scrna(adata):
     markers = ['DGCR8', 'RANBP1', 'DGCR2', 'COMT', 'CRKL']
@@ -251,7 +256,7 @@ def rank_gene_analysis(adata: sc.AnnData, gene='SETD1A', count_min=1) -> sc.AnnD
 
     return adata
 
-def differential_expression_analysis(adata, cutoff=0, gene = 'SETD1A'):
+def mast_preprocessing(adata, cutoff=0, gene = 'SETD1A'):
     # backup new X data
     adata.layers['bck_X'] = adata.X
 
@@ -293,61 +298,9 @@ def differential_expression_analysis(adata, cutoff=0, gene = 'SETD1A'):
     res = sc.get.rank_genes_groups_df(adata_test2, group=['CT','FS','SP'], key='wilcoxon',pval_cutoff=0.1)
     res.to_parquet(os.path.join(interDir, f'{prefix}.DEG_rank_genes.parquet'))
 
-    run_mast(adata_test)
-    mast_postprocessing
-    
-def run_mast(
-    adata: sc.AnnData,
-    cell_types=['EN-PFC1','EN-PFC2','EN-PFC3','EN-V1-1','EN-V1-2','EN-V1-3']
-    ) -> None:
-    
-    # subset the adata for the cell type we are interested in
-    adata_test = adata[adata.obs['nowakowski'].isin(cell_types)]
-    adata_test.obs['n_genes'] = (adata_test.X > 0).sum(1) # recompute number of genes expressed per cell
+def differential_expression_analysis(adata, cutoff=0, gene = 'SETD1A'):
+    return run_mast(adata)
 
-    # produce mast data csv
-    adata_test.to_df().to_csv(os.path.join(interDir, 'nowakowski_EN.mast_data.csv'))
-
-    # produce mast metadata csv
-    keys = ['n_genes', 'condition', 'batch'] #, ... additional covariates present in obs slot of adata that you may want to use ...  ]
-    adata_path = os.path.join(interDir, 'nowakowski_EN.mast_metadata.csv')
-    adata_test.obs[keys].to_csv(adata_path)
-    
-    # if script is available, run MAST_analysis_BX.R
-    script_path = os.path.join(git_root, 'optimized_codes', 'R', 'MAST_analysis_BX.R')
-    if os.path.isfile(script_path):
-        os.system('Rscript --vanilla ' + script_path + ' ' + adata_path)
-    else:
-        click.echo("MAST_analysis_BX.R not found here: " + script_path)        
-        click.echo("Falling back to using rpy2")
-
-        import rpy2.robjects as robjects
-        from rpy2.robjects import pandas2ri
-        pandas2ri.activate()
-        robjects.r(
-            '''
-            <script body>
-            '''
-        )
-
-    ent_de = pd.read_csv(os.path.join(interDir, 'nowakowski_EN.mast_ent_de.csv'))
-    return ent_de
-
-def mast_postprocessing(ent_de) -> None:
-    ent_de.index = ent_de.primerid
-
-    ## import annotation from the biomart database
-    annot = sc.queries.biomart_annotations(
-                "hsapiens",
-                ['hgnc_symbol',"chromosome_name","start_position", "end_position"],
-            ).set_index("hgnc_symbol")
-
-    ent_de_ann = ent_de.merge(annot, left_index=True, right_index=True)
-    ent_de_ann.sort_values(by=['FDR'], inplace=True)
-
-    filename = f"{prefix}.log1p_liger_singleR_nowakowski_3cellTypes_MAST.parquet "
-    output_path = os.path.join(interDir, filename)
-    ent_de_ann.to_parquet(output_path)
 
 def find_highly_variable_genes(adata):
     ad = adata # remove this later
@@ -412,97 +365,46 @@ def human_pfc_data(
 
     return h_ad
 
-def post_liger_pre_singler():
-    click.echo("Reading output of Liger + Preprocessing")
-    # Read files
-    path_to_anndata = os.path.join(interDir, "pasca_log1p.h5ad")
-    path_to_liger = os.path.join(interDir, "pasca.liger.csv")
+@cli.command()
+@click.option('--adata_path', type=str, default=None, help='Path to anndata output from preprocessing step')
+def run_liger(adata_path):
+    click.echo("Preprocessing --> *You are here* --> post_liger_pre_singler --> ...")
+    outpath = ""
     
-    df_liger = pd.read_csv(path_to_liger, index_col=0)
-    adata = sc.read(path_to_anndata)
-
-    # Generating figures based on Liger output
-    click.echo("Generating figures based on Liger output")
-    adata.obsm['X_liger'] = df_liger.loc[adata.obs_names, :].values
-    adata = generate_figures(adata)
+    # If script is available, run Liger script, otherwise run Liger using rpy2
+    script_path_parent = os.path.join(git_root, 'optimized_codes', 'r')
+    script_path = os.path.join(script_path_parent, 'run_liger.R')
     
-    adata.uns['log1p']["base"] = None # To avoid KeyError: 'base' with rank_gene_groups()
-    rank_genes_and_save(adata)
-
-    click.echo("Reading and processing post quality control data")
-    postqc_path = os.path.join(interDir, "pasca_postqc.h5ad")
-    adata = sc.read(postqc_path)
-    df = pd.DataFrame.sparse.from_spmatrix(adata.X, index=adata.obs_names, columns=adata.var_names)
-
-    # filter genes?
-    click.echo("Filtering genes")
-    df = df.loc[:, ((df > 0).sum(axis=0) >= 1)]
-
-    click.echo("Downloading and processing reference data")
-    ad_nowakowski = download_and_process_reference()
-    sc.pp.filter_cells(ad_nowakowski, min_genes=200)
-    sc.pp.filter_genes(ad_nowakowski, min_cells=1)
-    genes = df.columns.intersection(ad_nowakowski.var_names)
-
-    df = df.loc[:, genes]
-    ad_nowakowski = ad_nowakowski[:, genes].copy()
-
-    # df is the target dataframe to be exported to R 
-    # generate the ref dataframe with CellID as index to be exported to R
-    click.echo("Generating reference dataframe to be exported to R")
-    df_nowakowski = pd.DataFrame(
-        ad_nowakowski.X,
-        index=ad_nowakowski.obs['Cell'],
-        columns=ad_nowakowski.var_names
-    )
-
-    # get the annotation (WGCNAcluster in this case) for each CellID (Cell in this case)
-    ad_nowakowski_label = pd.DataFrame(
-        ad_nowakowski.obs["WGCNAcluster"].values,
-        index=ad_nowakowski.obs['Cell']
-    )
-    ad_nowakowski_label.columns = ['WGCNAcluster']
-    ad_nowakowski_label.to_csv(os.path.join(interDir, 'nowakowski.label_bx.csv'), sep=',', header=True)
+    if os.path.isfile(script_path):
+        # Construct command line arguments to run Liger script
+        counts_path = os.path.join(interDir, "pasca_log1p.parquet")
+        metadata_path = os.path.join(interDir, "pasca_log1p.metadata.csv")
+        args = f"{script_path} {counts_path} {metadata_path}"
+        
+        # Run Liger script
+        os.system(f"Rscript --vanilla {args}")
+    else:
+        click.echo("run_liger.R not found here: " + script_path_parent)
+        click.echo("Falling back to using rpy2")
+        
+        import rpy2.robjects as robjects
+        from rpy2.robjects import pandas2ri
+        pandas2ri.activate()
+        robjects.r(
+            '''
+            R logic
+            '''
+        )
     
-    # Creating noglyc version of nowakowski?
-    ad_nowakowski_noglyc = ad_nowakowski[
-        ~(ad_nowakowski.obs['WGCNAcluster'] == 'Glyc'),
-        :
-    ].copy()
-    ad_nowakowski_noglyc_label = pd.DataFrame(ad_nowakowski_noglyc.obs)
-    ad_nowakowski_noglyc_label_f = ad_nowakowski_noglyc_label[["WGCNAcluster"]]
-    ad_nowakowski_noglyc_label_f.index = ad_nowakowski_noglyc_label["Cell"]
-    ad_nowakowski_noglyc_label_f.to_csv(
-        os.path.join(interDir, 
-        'nowakowski_noglyc.label_bx.csv'), 
-        sep=',', 
-        header=True
-    )
+    return os.path.join(interDir, outpath)
 
-    click.echo("Start of part 7d in original notebook")
-    ## 7d START ## 
-    # Presumbly df refers to earlier df?
-    res1 = (df * 1e6).divide(df.sum(axis=1), axis='rows')
-    c_res1 = csr_matrix(res1)
-    df1 = pd.DataFrame(c_res1.toarray(), index=df.index, columns=df.columns)
-    df1.reset_index().to_parquet(os.path.join(interDir, "pasca.cpm.parquet")) # Using parquet instead of feather
-
-    res2 = (df_nowakowski * 1e6).divide(df_nowakowski.sum(axis=1), axis='rows')
-    c_res2 = csr_matrix(res2)
-    df2 = pd.DataFrame(c_res2.toarray(),index=df_nowakowski.index,columns=df_nowakowski.columns)
-    df2.reset_index().to_parquet(os.path.join(interDir, "nowakowski_pasca.cpm.parquet")) # Using parquet instead of feather
-    ## 7d END ##
-
-def post_singler_pre_mast():
-    return
-
-def post_mast():
-    return
-
-
-@click.command()
+@cli.command()
 @click.option('--input', '-i', type=click.Path(exists=True), default=None, help='Liger output file')
-def run(input):
+def post_liger_pre_singler(input):
+    click.echo("Preprocessing --> Liger --> *You are here* --> Singler")
+    inter = os.path.abspath(input) if input is not None else interDir
+    print(f"Using input directory: {inter}")
+    
     click.echo("Reading output of Liger + Preprocessing")
     # Read files
     path_to_anndata = os.path.join(interDir, "pasca_log1p.h5ad")
@@ -575,19 +477,29 @@ def run(input):
     res1 = (df * 1e6).divide(df.sum(axis=1), axis='rows')
     c_res1 = csr_matrix(res1)
     df1 = pd.DataFrame(c_res1.toarray(), index=df.index, columns=df.columns)
-    df1.reset_index().to_parquet(os.path.join(interDir, "pasca.cpm.parquet")) # Using parquet instead of feather
+    df1.reset_index().to_parquet(os.path.join(interDir, "pasca.cpm.parquet")) 
 
     res2 = (df_nowakowski * 1e6).divide(df_nowakowski.sum(axis=1), axis='rows')
     c_res2 = csr_matrix(res2)
     df2 = pd.DataFrame(c_res2.toarray(),index=df_nowakowski.index,columns=df_nowakowski.columns)
-    df2.reset_index().to_parquet(os.path.join(interDir, "nowakowski_pasca.cpm.parquet")) # Using parquet instead of feather
-    ## 7d END ##
+    df2.reset_index().to_parquet(os.path.join(interDir, "nowakowski_pasca.cpm.parquet")) 
+    
+    # Return path to input file for SingleR
+    return os.path.join(interDir, "pasca.cpm.parquet")
 
-    click.echo("Start of part 7e in original notebook")
-    ## 7e START ##
-    run_singler(os.path.join(interDir, "pasca.cpm.parquet"))
-    ## 7e END ## 
+@cli.command()
+def run_singler():
+    click.echo("Liger --> post_liger_pre_singler --> *You are here* --> post_singler_pre_mast --> ...")
+    outpath = ""
+    cmd = f"Rscript --vanilla {interDir} {outpath}"
+    os.command(cmd)
+    
+    return os.path.join(interDir, outpath)
 
+@cli.command()
+def post_singler_pre_mast():
+    click.echo("... --> Singler --> *You are here* --> MAST")
+    
     ## 7f START ##
     adata = sc.read(os.path.join(interDir, "pasca.cpm.parquet"))
     annotation = pd.read_csv(os.path.join(interDir, "pasca_nowakowski_med_2022-09-25_singler.csv"), index_col=0)
@@ -597,8 +509,8 @@ def run(input):
 
     ## Part 6 START ##
     adata.write(os.path.join(interDir, "pasca.log1p_liger_med_singleR_noglyc.h5ad"))
-    # *** write metadata to separate file earmarked for CellPhoneDB ***
-    # *** write counts to separate file earmarked for CellPhoneDB ***
+    # *** write metadata to separate file earmarked for CellPhoneDB here ***
+    # *** write counts to separate file earmarked for CellPhoneDB here ***
     ## Part 6 END ##
 
     ## Part 7 START ##
@@ -613,10 +525,67 @@ def run(input):
     adata = rank_gene_analysis(adata)
     ## Part 9 END ##
     
-    ## Part 13 START ##
-    adata = differential_expression_analysis(adata)
-    ## Part 13 END ##
+    adata = mast_preprocessing(adata)
+    
+    return adata
 
+@cli.command()
+@click.option('--adata', type=str, default=None, help='Path to anndata output from post-singler-pre-mast step')
+def run_mast(adata: sc.AnnData) -> None:
+    # TODO: Turn cell_types into a CLI argument and function argument
+    cell_types=['EN-PFC1','EN-PFC2','EN-PFC3','EN-V1-1','EN-V1-2','EN-V1-3']
+   
+    # subset the adata for the cell type we are interested in
+    adata_test = adata[adata.obs['nowakowski'].isin(cell_types)]
+    adata_test.obs['n_genes'] = (adata_test.X > 0).sum(1) # recompute number of genes expressed per cell
+
+    # produce mast data csv
+    adata_test.to_df().to_csv(os.path.join(interDir, 'nowakowski_EN.mast_data.csv'))
+
+    # produce mast metadata csv
+    keys = ['n_genes', 'condition', 'batch'] #, ... additional covariates present in obs slot of adata that you may want to use ...  ]
+    adata_path = os.path.join(interDir, 'nowakowski_EN.mast_metadata.csv')
+    adata_test.obs[keys].to_csv(adata_path)
+    
+    # if script is available, run MAST_analysis_BX.R
+    script_path = os.path.join(git_root, 'optimized_codes', 'R', 'MAST_analysis_BX.R')
+    if os.path.isfile(script_path):
+        os.system('Rscript --vanilla ' + script_path + ' ' + adata_path)
+    else:
+        click.echo("MAST_analysis_BX.R not found here: " + script_path)        
+        click.echo("Falling back to using rpy2")
+
+        import rpy2.robjects as robjects
+        from rpy2.robjects import pandas2ri
+        pandas2ri.activate()
+        robjects.r(
+            '''
+            <script body>
+            '''
+        )
+
+    ent_de = pd.read_csv(os.path.join(interDir, 'nowakowski_EN.mast_ent_de.csv'))
+    return ent_de
+
+@cli.command()
+@click.option('--ent_de', type=str, default=None, help='Output from differential gene analysis via MAST R package')
+def post_mast(ent_de):
+    click.echo("--> post_singler_pre_mast --> MAST --> *You are here*")
+    ent_de.index = ent_de.primerid
+
+    ## import annotation from the biomart database
+    annot = sc.queries.biomart_annotations(
+                "hsapiens",
+                ['hgnc_symbol',"chromosome_name","start_position", "end_position"],
+            ).set_index("hgnc_symbol")
+
+    ent_de_ann = ent_de.merge(annot, left_index=True, right_index=True)
+    ent_de_ann.sort_values(by=['FDR'], inplace=True)
+
+    filename = f"{prefix}.log1p_liger_singleR_nowakowski_3cellTypes_MAST.parquet "
+    output_path = os.path.join(interDir, filename)
+    ent_de_ann.to_parquet(output_path)
+    return
 
 if __name__ == "__main__":
-    run()
+    cli()
