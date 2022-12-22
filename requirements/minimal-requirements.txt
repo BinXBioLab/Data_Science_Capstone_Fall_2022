@@ -14,7 +14,7 @@ sip==6.6.2
 squidpy==1.2.3
 tables==3.7.0
 tangram-sc==1.0.3
-TBB==0.2
+TBB
 testpath==0.6.0
 tzlocal==4.2
 wget==3.2
