@@ -1,3 +1,4 @@
+import pdb
 from gc import collect
 import sys
 import os
@@ -27,7 +28,7 @@ def write_anndata(anndata: sc.AnnData, directory: pathlib.Path,
     Writes scanpy AnnData object to disk in specified directory with filename
     """
     fullpath = pathlib.Path(directory, filename)
-    click.echo(f"Writing AnnData object to {fullpath}")
+    click.echo(f"\nWriting AnnData object to {fullpath}\n")
     anndata.write(fullpath)
 
 
@@ -77,7 +78,7 @@ def sparsify(anndata: sc.AnnData, make_vars_unique: bool = True) -> sc.AnnData:
     Returns:
         sc.AnnData: Annotated data with sparsified counts
     """
-    click.echo("Sparsifying AnnData counts matrix")
+    click.echo("\nSparsifying AnnData counts matrix\n")
 
     # Ensures we're not storing redundant variables in data
     if make_vars_unique:
@@ -281,57 +282,78 @@ def filter_by_attr(anndata: sc.AnnData, pct_count,
     return temp
 
 
-def r_pipeline(anndata: sc.AnnData):
+def r_pipeline(anndata: sc.AnnData, inter_dir: str):
     """
     Run scran and quickClister on anndata using R
 
     Args:
         anndata (sc.AnnData): Annotated data object
     """
-    progress = trange(6, desc='R single cell experiment pipeline')
+    try:
+        click.echo("Running SCRAN as Script\n")
+        from scipy.io import mmwrite
+        
+        input_path = os.path.join(inter_dir, "scran_input.mtx")
+        output_path = os.path.join(inter_dir, "scran_output.mtx")
+        print(f"Input path: {input_path}")
+        print(f"Output path: {output_path}")
+        
+        mmwrite(input_path, anndata.X.T)
+        cmd = f"Rscript --vanilla ../R/run_scran.R {input_path} {output_path}"
+        print(cmd)
+        os.system(cmd)
+        
+        sf = np.genfromtxt(output_path)
+        anndata.obs['sf'] = sf
+        anndata.layers['counts'] = anndata.X.copy()
+        anndata.X /= anndata.obs['sf'].values[:, None]
+    except FileNotFoundError:
+        click.echo("Couldn't find one or more of the files for scran")
+        click.echo("Falling back to rpy2")
+        progress = trange(6, desc='R single cell experiment pipeline')
 
-    # Importing R package scran
-    progress.set_description("Importing scran package")
-    importr('scran')
-    progress.update(1)
+        # Importing R package scran
+        progress.set_description("Importing scran package")
+        importr('scran')
+        progress.update(1)
 
-    # Assigning the transposed counts to a variable called `mat`
-    progress.set_description("Storing anndata matrix in R object")
-    ro.r.assign('mat', anndata.X.T)
-    progress.update(1)
+        # Assigning the transposed counts to a variable called `mat`
+        progress.set_description("Storing anndata matrix in R object")
+        ro.r.assign('mat', anndata.X.T)
+        progress.update(1)
 
-    # TODO: Can this be done in python?
-    # Creating quickCluster object and transforming into SingleCellExperiment
-    # for later use
-    progress.set_description("quickCluster")
-    ro.reval('cl <- quickCluster(mat)')
-    csf_params = 'SingleCellExperiment::SingleCellExperiment(list(counts=mat)), clusters = cl'
-    progress.update(1)
+        # TODO: Can this be done in python?
+        # Creating quickCluster object and transforming into SingleCellExperiment
+        # for later use
+        progress.set_description("quickCluster")
+        ro.reval('cl <- quickCluster(mat)')
+        csf_params = 'SingleCellExperiment::SingleCellExperiment(list(counts=mat)), clusters = cl'
+        progress.update(1)
 
-    # Garbage collection to free up memory
-    # del qclust_params
-    collect()
+        # Garbage collection to free up memory
+        # del qclust_params
+        collect()
 
-    # Something in scran?
-    progress.set_description("computeSumFactors")
-    ro.reval(f'mysce <-computeSumFactors({csf_params})')
-    progress.update(1)
+        # Something in scran?
+        progress.set_description("computeSumFactors")
+        ro.reval(f'mysce <-computeSumFactors({csf_params})')
+        progress.update(1)
 
-    # Converting scran output to numpy
-    progress.set_description("sizeFactors")
-    sf = np.asarray(ro.reval('sizeFactors(mysce)'))
-    progress.update(1)
+        # Converting scran output to numpy
+        progress.set_description("sizeFactors")
+        sf = np.asarray(ro.reval('sizeFactors(mysce)'))
+        progress.update(1)
 
-    # Garbage collection again?
-    del csf_params
-    collect()
+        # Garbage collection again?
+        del csf_params
+        collect()
 
-    # TODO: Change this so manipulation doesn't occur in-place
-    progress.set_description("Assigning R results to python")
-    anndata.obs['sf'] = sf
-    anndata.layers['counts'] = anndata.X.copy()
-    anndata.X /= anndata.obs['sf'].values[:, None]
-    progress.update(1)
+        # TODO: Change this so manipulation doesn't occur in-place
+        progress.set_description("Assigning R results to python")
+        anndata.obs['sf'] = sf
+        anndata.layers['counts'] = anndata.X.copy()
+        anndata.X /= anndata.obs['sf'].values[:, None]
+        progress.update(1)
 
     return anndata
 
@@ -406,9 +428,7 @@ def annotate(anndata_sparse: sc.AnnData, anndata_dirs: list, inter_dir):
 
     # TODO: How to not have this hardcoded
     # Get ribosomal gene data
-    ribo_p = adata_var_get(
-        anndata_annot, prefix_l=[
-            'RPL', 'RPS', 'MRPL', 'MRPS'])
+    ribo_p = adata_var_get(anndata_annot, prefix_l=['RPL', 'RPS', 'MRPL', 'MRPS'])
 
     anndata_augmented = mito_qc_metrics(anndata_annot)
     anndata_augmented = augment_with_ribo_data(anndata_annot, ribo_p)
@@ -495,7 +515,7 @@ def postprocess(anndata_filtered: sc.AnnData, inter_dir):
         anndata_filtered (sc.AnnData): Annotated data object after filtering by percent counts, gene counts, and total counts
     """
     # scran pipeline in R
-    anndata_scran = r_pipeline(anndata_filtered)
+    anndata_scran = r_pipeline(anndata_filtered, inter_dir)
 
     # Sparsifying the scran output to save space
     anndata_scran_sparse = sparsify(
@@ -513,8 +533,7 @@ def postprocess(anndata_filtered: sc.AnnData, inter_dir):
         show=False
     )
 
-    # Take each entry in the counts matrix (call it x) and replace it with
-    # log(x + 1)
+    # Take each entry in the counts matrix (call it x) and replace it with log(x + 1)
     sc.pp.log1p(anndata_scran_sparse)
     write_anndata(anndata_scran_sparse, inter_dir, "pasca_log1p.h5ad")
     generate_liger_input(anndata_scran_sparse, inter_dir)
