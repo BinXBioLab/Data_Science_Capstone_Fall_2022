@@ -1,0 +1,25 @@
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND noninteractive
+
+# Installing Python
+RUN apt update  
+RUN apt install -y software-properties-common dirmngr libffi-dev pkg-config libhdf5-dev
+RUN apt update
+RUN apt install -y python3 wget git make python3-pip python3-cffi
+RUN apt update
+
+# Installing R 
+RUN wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
+RUN add-apt-repository 'deb https://cloud.r-project.org/bin/linux/ubuntu focal-cran40/'
+RUN apt install --no-install-recommends -y r-base
+
+# Install R dependencies
+RUN R -e "install.packages(c('BiocManager'))"
+RUN R -e "BiocManager::install(c('Seurat', 'SingleR'))"
+RUN R -e "install.packages(c('Rcpp', 'ggplot2', 'liger', 'reshape2', 'plyr', 'MAST', 'scran', 'gam', 'clusterExperiment'))"
+
+# Copy requirements to container and install them
+COPY requirements/minimal-requirements.txt /requirements.txt
+RUN pip install numpy
+RUN pip install -r requirements.txt
