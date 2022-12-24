@@ -1,0 +1,120 @@
+#mount access to google drive to access data from Prof Xu's lab
+from google.colab import drive
+drive.mount('/mntDrive')
+
+!python --version
+
+!pip freeze
+
+#wait to install cellphonedb until later! -- need to downgrade anndata
+# !pip install cellphonedb
+# # !pip install scanpy
+# # !pip install anndata
+# import cellphonedb
+
+# import pandas as pd
+import anndata as ad
+import os
+ad.__version__
+
+#define save location for intermediate files
+base_filepath = ''
+inter_folder = ''
+final_folder = ''
+
+!pip install anndata==0.8.0
+
+import anndata as ad
+
+ad.__version__
+
+adata = ad.read('/mntDrive/MyDrive/Capstone/Data_Science_Capstone_Fall_2022/raw_data/Pasca_scRNAseq/inter/pasca.log1p_liger_med_singleR_noglyc.h5ad')
+
+adata
+
+#convert counts layer into dataframe --  needed in txt for CellphoneDB
+## Expected format: rows are genes, columns are cells with IDs // recommended to be normalized prior to use in CellPhoneDB
+
+counts_df = adata.to_df(layer="counts")
+counts_df.head()
+
+#transpose counts & save intermediate counts file
+counts_data = counts_df.transpose()
+
+counts_data.head()
+
+filename = 'counts_data.txt'
+counts_data.to_csv(os.path.join('/mntDrive/MyDrive/Capstone/', filename), index=False)
+
+meta_nowakowski = pd.DataFrame(adata.obs['nowakowski_med'])
+meta_nowakowski
+
+meta_nowakowski = meta_nowakowski.reset_index().rename(columns={'index': 'Cell', 'nowakowski_med':'cell_type'})
+meta_nowakowski.head()
+
+filename = 'meta_data.txt'
+meta_nowakowski.to_csv(os.path.join('/mntDrive/MyDrive/Capstone/CellphoneDB_Files', filename), index=False, sep ='\t')
+
+# meta_nowakowski = adata.obs['nowakowski_med'].to_df()
+
+""" Step 0 - prepare your data
+
+Prepare cellphoneDB inputs starting from an anndata object object
+"""
+
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import anndata
+import os
+import sys
+from scipy import sparse
+
+
+
+sc.settings.verbosity = 1  # verbosity: errors (0), warnings (1), info (2), hints (3)
+sys.executable
+
+"""1. Load andata
+The anndata object contains counts that have been normalized (per cell) and log-transformed."""
+
+adata = sc.read('endometrium_example_counts.h5ad')
+
+"""2. Generate your meta
+
+In this example, our input is an anndata containing the cluster/celltype information in anndata.obs['cell_type']
+
+The object also has anndata.obs['lineage'] information wich will be used below for a hierarchical DEGs approach."""
+
+adata.obs['cell_type'].values.describe()
+
+df_meta = pd.DataFrame(data={'Cell':list(adata.obs.index),
+                             'cell_type':[ i for i in adata.obs['cell_type']]
+                            })
+df_meta.set_index('Cell', inplace=True)
+# df_meta.to_csv('endometrium_example_meta.tsv', sep = '\t')
+
+## Run CellPhoneDB
+# shell cellphonedb method statistical_analysis test_meta.txt test_counts.txt
+
+sample_count_path = '/mntDrive/MyDrive/Capstone/CellphoneDB_Files/sample_counts_file.txt'
+sample_meta_path = '/mntDrive/MyDrive/Capstone/CellphoneDB_Files/sample_meta_file.txt'
+
+!pip install cellphonedb 
+
+import cellphonedb
+
+!cellphonedb method statistical_analysis --help
+
+#run statistical analysis - took 43 seconds
+!cellphonedb method statistical_analysis /mntDrive/MyDrive/Capstone/CellphoneDB_Files/sample_meta_file.txt /mntDrive/MyDrive/Capstone/CellphoneDB_Files/sample_counts_file.txt --output-path /mntDrive/MyDrive/Capstone/CellphoneDB_Files/
+
+!cellphonedb plot dot_plot --help
+
+!cellphonedb plot dot_plot --help
+
+!cellphonedb plot dot_plot --output-path /mntDrive/MyDrive/Capstone/CellphoneDB_Files/
+
+!cellphonedb plot heatmap_plot /mntDrive/MyDrive/Capstone/CellphoneDB_Files/sample_meta_file.txt
+
+
