@@ -16,6 +16,3 @@ RUN apt install --no-install-recommends -y r-base
 
 # Install CellphoneDB
 RUN pip install cellphonedb==3.1.0
-
-# Check to make sure that CellphoneDB works
-RUN cellphonedb database list_remote
