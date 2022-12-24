@@ -62,7 +62,7 @@ Options:
 1. In order to use the container to perform the actual preprocessing you can run
 
 ```Docker
-docker run --name preprocessing --rm -v $PWD/pipeline:/pipeline -it pipeline python /pipeline/scripts/python/preprocessing.py --in_dir /pipeline/raw_data/ --inter_dir /pipeline/inter/
+docker run --name preprocessing --rm -v $PWD/pipeline:/pipeline -it pipeline python /pipeline/python/preprocessing.py --in_dir /pipeline/raw_data/ --inter_dir /pipeline/inter/
 ```
 
 If the code ran successfully, the intermediate outputs should be in `pipeline/inter`. You'll need a computer with 16 Gb of memory because `SCRAN` requires a lot of memory to run successfully.
@@ -77,7 +77,7 @@ docker build -f Dockerfile-Pipeline -t pipeline .
 2. To test whether the container was successfully built you can run the command below.
 
 ```Docker
-docker run --name pipeline --rm -v $PWD/pipeline:/pipeline -it pipeline python /pipeline/scripts/python/pipeline.py --help
+docker run --name pipeline --rm -v $PWD/pipeline:/pipeline -it pipeline python /pipeline/python/pipeline.py --help
 ```
 
 The output should look like this
@@ -107,8 +107,10 @@ Commands:
 3. To run the analysis pipeline, you can run the following command.
 
 ```
-docker run --name pipeline --rm -v $PWD/pipeline:/pipeline -it pipeline python /pipeline/scripts/run_pipeline.sh
+docker run --name pipeline --rm -v $PWD/pipeline:/pipeline -it pipeline bash /pipeline/scripts/run_pipeline.sh
 ```
+
+You can edit the contents of `run_pipeline.sh` to suit your needs. You can pass different arguments to each function, omit certain lines, add additional intermediate processing, etc.
 
 ## CellphoneDB with Docker
 1. Build the Docker image for the Tangram with the command below. This step can take a long time but it shouldn't take longer than the main pipeline + preprocessing Docker container. The container requires approximately **6 Gb** of local storage to build.
