@@ -5,6 +5,7 @@ raw_data/Pasca_scRNAseq/inter/*
 raw_data/Pasca_scRNAseq/inter-test/*
 raw_data/Pasca_scRNAseq/inter.zip
 
+optimized_codes/scratch.ipynb
 optimized_codes/python/cache/*
 optimized_codes/python/figures/*
 
