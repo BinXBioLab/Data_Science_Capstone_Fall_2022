@@ -521,7 +521,7 @@ def postprocess(anndata_filtered: sc.AnnData, inter_dir):
 
 
 @click.command()
-@click.option('--in_dir', default=None, help="Directory to look for 10x Genomics directories")
+@click.option('--in_dir', default=None, help="Parent directory of 10x Genomics directories")
 @click.option('--inter_dir', default=None, help="Directory to store intermediate outputs")
 @click.option('--pct_count_lower', default=None, help='Lower bound of percent counts to filter')
 @click.option('--pct_count_upper', default=20, help='Upper bound of percent counts to filter')
@@ -540,20 +540,7 @@ def preprocess(
         total_counts_lower: float,
         total_counts_upper: float,
         aggregated_filename) -> None:
-    """
-    Top-level function which executes all the high-level functions
-
-    Args:
-        in_dir (str): Root of directory with relevant inputs
-        inter_dir (str): Directory path to store intermediate files
-        pct_count_lower (int): lower bound for percent count filtering
-        pct_count_upper (int): upper bound for percent count filtering
-        genes_by_count_lower (int): lower bound for gene count filtering
-        genes_by_count_upper (int): upper bound for gene count filtering
-        total_counts_lower (float): lower bound for total count filtering
-        total_counts_upper (float): upper bound for total count filtering
-        aggregated_filename (str): Filename for aggregated annotated data object when saving to disk
-    """
+    """Top-level function which executes all the high-level functions"""
     
     # Try automatically finding the repo root if the inputs are not specified
     if in_dir is None:
