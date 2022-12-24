@@ -24,7 +24,6 @@ adata_st = sc.read_h5ad("adata_st_postproj.h5ad")
 ad_map = sc.read_h5ad("ad_map.h5ad")
 #ad_ge = sc.read_h5ad("ad_ge.h5ad")
 
-
 # # 2. Analyzing data
 
 # ## 2.1 Visualizing initial data 
