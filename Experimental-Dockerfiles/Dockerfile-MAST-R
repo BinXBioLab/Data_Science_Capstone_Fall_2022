@@ -1,5 +1,0 @@
-FROM r-base:4.1.0
-
-# Install R dependencies
-RUN R -e "install.packages(c('BiocManager'))"
-RUN R -e "install.packages(c('Rcpp', 'ggplot2', 'reshape2', 'plyr', 'MAST', 'gam', 'clusterExperiment'))"
