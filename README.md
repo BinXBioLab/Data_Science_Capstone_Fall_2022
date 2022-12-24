@@ -34,7 +34,7 @@ docker build -f Dockerfile-Pipeline -t pipeline .
 2. To test whether the container was successfully built you can run the command below.
 
 ```Docker
-docker run --name preprocessing --rm -v $PWD/pipeline:/pipeline -it pipeline python /pipeline/scripts/python/preprocessing.py --help
+docker run --name preprocessing --rm -it pipeline python /pipeline/scripts/python/preprocessing.py --help
 ```
 
 The output should look like this
@@ -59,7 +59,7 @@ Options:
   --help                          Show this message and exit.
 ```
 
-3. In order to use the container to perform preprocessing you'll need to move the raw counts into the `pipeline/raw_data/` folder. If the 10x Genomics directories are in `pipeline/raw_data/` and you want to store the intermediate outputs in `pipeline/inter`.
+1. In order to use the container to perform the actual preprocessing you can run
 
 ```Docker
 docker run --name preprocessing --rm -v $PWD/pipeline:/pipeline -it pipeline python /pipeline/scripts/python/preprocessing.py --in_dir /pipeline/raw_data/ --inter_dir /pipeline/inter/
