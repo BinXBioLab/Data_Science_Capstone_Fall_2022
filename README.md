@@ -2,17 +2,17 @@
 ## Authors: Ju, Katharina, Darvesh
 
 # Setting Up
-Most files that will be needed are contained within the repository. The only files that are not contained within the repository are those files in `raw_data/Pasca_scRNAseq/inter/`. They are not included because they are too large to commit to GitHub via normal means and we lack adequate storage space and bandwidth on git lfs (Git Large-file Storage). However, these files are also generated via running the pipeline so they are not strictly necessary for running the code from scratch. A `git clone` should be sufficient to get started. If you have access to the Google Drive folder with the data that belongs in `raw_data/Pasca_scRNAseq/inter/`, go ahead and copy it there. The files in there will automatically be ignored via the `.gitignore` file so any changes to them will not be tracked. This may change in the future but it is unlikely due to the extremely large nature of the files (>16 Gb).
+Most files that will be needed are contained within the repository. The only files that are not contained within the repository are those files in `pipeline/inter/`. They are not included because they are too large to commit to GitHub via normal means and we lack adequate storage space and bandwidth on git lfs (Git Large-file Storage). However, these files are also generated via running the pipeline so they are not strictly necessary for running the code from scratch. A `git clone` should be sufficient to get started. If you have access to the Google Drive folder with the data that belongs in `pipeline/inter/`, go ahead and copy it there. The files in there will automatically be ignored via the `.gitignore` file so any changes to them will not be tracked. This may change in the future but it is unlikely due to the extremely large nature of the files (>16 Gb).
 
 This repository also uses Docker as a means to make the analysis reproducible. Docker is a containerization tool used to create isolated environments that are portable across operating systems (i.e. Windows, MacOS, and Linux). Dockerfiles define the specification for how to create an image and each image can be run as a container. One image can be used for multiple containers. 
 
-Before we start let's download and set up the repository
+Before we start let's perform some prerequisite downloads/installations.
 
 1. Install Docker on your computer ([installation instructions are here](https://docs.docker.com/get-docker/)). 
 
-2. If you're not on a server (i.e. you're on your Windows or Mac computer), launch Docker Desktop to make sure you can run Docker commands in the command line.
+2. Launch Docker Desktop to make sure you can run Docker commands in the command line.
 
-2. Clone this repository to your local computer via 
+3. Clone this repository to your local computer via 
 
 ```shell
 git clone https://github.com/BinXBioLab/Data_Science_Capstone_Fall_2022.git
@@ -59,7 +59,7 @@ Options:
   --help                          Show this message and exit.
 ```
 
-1. In order to use the container to perform the actual preprocessing you can run
+3. In order to use the container to perform the actual preprocessing you can run
 
 ```Docker
 docker run --name preprocessing --rm -v $PWD/pipeline:/pipeline -it pipeline python /pipeline/python/preprocessing.py --in_dir /pipeline/raw_data/ --inter_dir /pipeline/inter/
@@ -68,7 +68,7 @@ docker run --name preprocessing --rm -v $PWD/pipeline:/pipeline -it pipeline pyt
 If the code ran successfully, the intermediate outputs should be in `pipeline/inter`. You'll need a computer with 16 Gb of memory because `SCRAN` requires a lot of memory to run successfully.
 
 ## Pipeline with Docker
-1. Build the Docker image for the preprocessing and pipeline steps via the command below. This step can take a long time specifically because of the `Seurat` and `SingleR` installation.
+1. You can skip to step 3 if you already completed this for preprocessing. Build the Docker image for the preprocessing and pipeline steps via the command below. This step can take a long time specifically because of the `Seurat` and `SingleR` installation.
 
 ```Docker
 docker build -f Dockerfile-Pipeline -t pipeline .
@@ -113,7 +113,7 @@ docker run --name pipeline --rm -v $PWD/pipeline:/pipeline -it pipeline bash /pi
 You can edit the contents of `run_pipeline.sh` to suit your needs. You can pass different arguments to each function, omit certain lines, add additional intermediate processing, etc.
 
 ## CellphoneDB with Docker
-1. Build the Docker image for the Tangram with the command below. This step can take a long time but it shouldn't take longer than the main pipeline + preprocessing Docker container. The container requires approximately **6 Gb** of local storage to build.
+1. Build the Docker image for the Tangram with the command below. This step can take a long time but it shouldn't take longer than the main pipeline + preprocessing Docker container.
 
 ```Docker
 docker build -f Dockerfile-CellphoneDB -t cellphonedb .
@@ -171,10 +171,10 @@ Pytorch Version: 1.13.0
 NVIDIA GPU Available: False
 ```
 
-3. To run code utilizing Tangram, you'll first need to mount a directory with all the input data and scripts. This directory will be where Docker looks for data and code when running the scripts. You can move all your data to the root level of the `tangram` directory.
+3. To run code utilizing Tangram, we'll need to mount a directory with all the input data and scripts. This directory will be where Docker looks for data and code when running the scripts. The easiest way to do this is to move all input data to the root level of `tangram` directory. For example, you could run the first command in the Tangram analysis like this:
 
 ```Docker
-docker run -it --rm --gpus all -v $PWD/tangram:/tangram tangram:latest python /tangram/scripts/Tangram_CPU.py
+docker run -it --rm --gpus all -v $PWD/tangram:/tangram tangram:latest python /tangram/scripts/Tangram_GPU.py
 ```
 
 `$PWD` is a shorthand for 'print working directory'. This is used because Docker does not allow characters like `.` in its commands. As a consequence something like `./data:/home` would fail to run. If you're specifying a path in a different folder, make sure you write the full path.
@@ -194,9 +194,15 @@ some_file_path = "/home/path/to/file"
 ...
 ```
 
-4. To run the code from the repository use the following command
+4. Perform the mapping via this command
+
+```Docker
+docker run -it --rm --gpus all -v $PWD/tangram:/tangram tangram:latest python /tangram/scripts/Tangram_GPU.py
+```
+
+5. Analyze the outputs of the mapping via
 
 ```
-docker run -it --rm --gpus all -v $PWD/tangram:/tangram tangram:latest python /tangram//scripts/Tangram_CPU.py
+docker run -it --rm --gpus all -v $PWD/tangram:/tangram tangram:latest python /tangram/scripts/Tangram_CPU.py
 ```
 
