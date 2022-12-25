@@ -17,15 +17,6 @@ import gseapy
 import click
 from joblib import parallel_backend
 
-
-git_repo = git.Repo(".", search_parent_directories=True)
-git_root = git_repo.git.rev_parse("--show-toplevel")
-
-topDir = os.path.join(git_root, "raw_data/Pasca_scRNAseq/")
-prefix = 'pasca'
-outDir = pathlib.Path(topDir,"outputs")
-interDir = pathlib.Path(topDir,"inter-test")
-
 sns.set_style('white')
 plt.rcParams['savefig.facecolor'] = 'w'
 sc.settings.verbosity = 3             # verbosity: errors (0), warnings (1), info (2), hints (3)
@@ -366,52 +357,31 @@ def human_pfc_data(
     return h_ad
 
 @cli.command()
-@click.option('--adata_path', type=str, default=None, help='Path to anndata output from preprocessing step')
-def run_liger(adata_path):
+@click.option('--rscript', type=click.Path(exists=True), required=True, default=None, help='R script that will run Liger')
+@click.option('--counts', type=click.Path(exists=True), required=True, default=None, help='Path to counts from preprocessing step')
+@click.option('--metadata', type=click.Path(exists=True), required=True, default=None, help='Path to metadata from preprocessing step')
+@click.option('--output', type=str, required=True, default=None, help='Filename for output of Liger analysis')
+def run_liger(rscript, counts, metadata, output):
     click.echo("Preprocessing --> *You are here* --> post_liger_pre_singler --> ...")
-    outpath = ""
     
-    # If script is available, run Liger script, otherwise run Liger using rpy2
-    script_path_parent = os.path.join(git_root, 'optimized_codes', 'r')
-    script_path = os.path.join(script_path_parent, 'run_liger.R')
+    # Construct command line arguments to run Liger script and run it
+    args = f"{rscript} {counts} {metadata} {output}"
+    os.system(f"Rscript --vanilla {args}")
     
-    if os.path.isfile(script_path):
-        # Construct command line arguments to run Liger script
-        counts_path = os.path.join(interDir, "pasca_log1p.parquet")
-        metadata_path = os.path.join(interDir, "pasca_log1p.metadata.csv")
-        args = f"{script_path} {counts_path} {metadata_path}"
-        
-        # Run Liger script
-        os.system(f"Rscript --vanilla {args}")
-    else:
-        click.echo("run_liger.R not found here: " + script_path_parent)
-        click.echo("Falling back to using rpy2")
-        
-        import rpy2.robjects as robjects
-        from rpy2.robjects import pandas2ri
-        pandas2ri.activate()
-        robjects.r(
-            '''
-            R logic
-            '''
-        )
-    
-    return os.path.join(interDir, outpath)
+    return output
 
 @cli.command()
-@click.option('--input', '-i', type=click.Path(exists=True), default=None, help='Liger output file')
-def post_liger_pre_singler(input):
+@click.option('--anndata', type=click.Path(exists=True), default=None, help='h5ad file from end of preprocessing')
+@click.option('--liger', type=click.Path(exists=True), default=None, help='Liger output')
+@click.option('--output', type=click.Path(exists=True), default=None, help='Output file path')
+def post_liger_pre_singler(anndata, liger, output):
     click.echo("Preprocessing --> Liger --> *You are here* --> Singler")
     inter = os.path.abspath(input) if input is not None else interDir
     print(f"Using input directory: {inter}")
     
     click.echo("Reading output of Liger + Preprocessing")
-    # Read files
-    path_to_anndata = os.path.join(interDir, "pasca_log1p.h5ad")
-    path_to_liger = os.path.join(interDir, "pasca.liger.csv")
-    
-    df_liger = pd.read_csv(path_to_liger, index_col=0)
-    adata = sc.read(path_to_anndata)
+    df_liger = pd.read_csv(liger, index_col=0)
+    adata = sc.read(anndata)
 
     # Generating figures based on Liger output
     click.echo("Generating figures based on Liger output")
@@ -477,7 +447,7 @@ def post_liger_pre_singler(input):
     res1 = (df * 1e6).divide(df.sum(axis=1), axis='rows')
     c_res1 = csr_matrix(res1)
     df1 = pd.DataFrame(c_res1.toarray(), index=df.index, columns=df.columns)
-    df1.reset_index().to_parquet(os.path.join(interDir, "pasca.cpm.parquet")) 
+    df1.reset_index().to_parquet(output)
 
     res2 = (df_nowakowski * 1e6).divide(df_nowakowski.sum(axis=1), axis='rows')
     c_res2 = csr_matrix(res2)
@@ -485,32 +455,37 @@ def post_liger_pre_singler(input):
     df2.reset_index().to_parquet(os.path.join(interDir, "nowakowski_pasca.cpm.parquet")) 
     
     # Return path to input file for SingleR
-    return os.path.join(interDir, "pasca.cpm.parquet")
+    return output
 
 @cli.command()
-def run_singler():
-    click.echo("Liger --> post_liger_pre_singler --> *You are here* --> post_singler_pre_mast --> ...")
-    outpath = ""
-    cmd = f"Rscript --vanilla {interDir} {outpath}"
+@click.option('--rscript', type=click.Path(exists=True), required=True, default=None, help='R script that will run SingleR')
+@click.option('--output', type=click.Path(exists=True), default=None, required=True, help='Output file path')
+def run_singler(rscript, input_file, output):
+    click.echo("post_liger_pre_singler --> *You are here* --> post_singler_pre_mast --> ...")
+    args = f"{rscript} {input_file} {output}"
+    cmd = f"Rscript --vanilla {args}"
     os.command(cmd)
     
-    return os.path.join(interDir, outpath)
+    return output
 
 @cli.command()
-def post_singler_pre_mast():
+@click.option('--anndata', type=click.Path(exists=True), default=None, help='h5ad file from previous step')
+@click.option('--annotation', type=click.Path(exists=True), default=None, help='Annotation file to augment anndata')
+@click.option('--inter', type=click.Path(exists=True), default=None, help='Output file path')
+def post_singler_pre_mast(anndata, annotation, inter):
     click.echo("... --> Singler --> *You are here* --> MAST")
     
     ## 7f START ##
-    adata = sc.read(os.path.join(interDir, "pasca.cpm.parquet"))
-    annotation = pd.read_csv(os.path.join(interDir, "pasca_nowakowski_med_2022-09-25_singler.csv"), index_col=0)
+    adata = sc.read(anndata)
+    annotation = pd.read_csv(annotation, index_col=0)
     adata.obs[f'nowakowski_med'] = annotation.loc[adata.obs_names, 'labels'] 
     del adata.obs['nowakowski_noglc'] # not sure why we're deleting this
     ## 7f END ##
 
     ## Part 6 START ##
-    adata.write(os.path.join(interDir, "pasca.log1p_liger_med_singleR_noglyc.h5ad"))
-    # *** write metadata to separate file earmarked for CellPhoneDB here ***
-    # *** write counts to separate file earmarked for CellPhoneDB here ***
+    adata.write(os.path.join(inter, "pasca.log1p_liger_med_singleR_noglyc.h5ad"))
+    adata.write(os.path.join(inter, "tangram_gpu_input.h5ad"))
+    adata.write(os.path.join(inter, "cellphonedb_input.h5ad"))
     ## Part 6 END ##
 
     ## Part 7 START ##
@@ -530,47 +505,39 @@ def post_singler_pre_mast():
     return adata
 
 @cli.command()
-@click.option('--adata', type=str, default=None, help='Path to anndata output from post-singler-pre-mast step')
-def run_mast(adata: sc.AnnData) -> None:
+@click.option('--rscript', type=click.Path(exists=True), required=True, help='R script that will run MAST')
+@click.option('--anndata', type=click.Path(exists=True), required=True, help='Path to anndata')
+@click.option('--metadata', type=click.Path(), required=True, help='Filepath to store intermediate metadata for MAST')
+@click.option('--output', type=click.Path(), default=None, required=True, help='Output file path')
+def run_mast(rscript, anndata, metadata, output) -> None:
     # TODO: Turn cell_types into a CLI argument and function argument
     cell_types=['EN-PFC1','EN-PFC2','EN-PFC3','EN-V1-1','EN-V1-2','EN-V1-3']
+    adata = sc.read(anndata)
    
     # subset the adata for the cell type we are interested in
     adata_test = adata[adata.obs['nowakowski'].isin(cell_types)]
     adata_test.obs['n_genes'] = (adata_test.X > 0).sum(1) # recompute number of genes expressed per cell
 
     # produce mast data csv
-    adata_test.to_df().to_csv(os.path.join(interDir, 'nowakowski_EN.mast_data.csv'))
+    adata_test.to_df().to_csv(metadata)
 
     # produce mast metadata csv
-    keys = ['n_genes', 'condition', 'batch'] #, ... additional covariates present in obs slot of adata that you may want to use ...  ]
-    adata_path = os.path.join(interDir, 'nowakowski_EN.mast_metadata.csv')
-    adata_test.obs[keys].to_csv(adata_path)
+    #, ... additional covariates present in obs slot of adata 
+    # that you may want to use ...  ]
+    keys = ['n_genes', 'condition', 'batch'] 
+    adata_test.obs[keys].to_csv(metadata)
     
-    # if script is available, run MAST_analysis_BX.R
-    script_path = os.path.join(git_root, 'optimized_codes', 'R', 'MAST_analysis_BX.R')
-    if os.path.isfile(script_path):
-        os.system('Rscript --vanilla ' + script_path + ' ' + adata_path)
-    else:
-        click.echo("MAST_analysis_BX.R not found here: " + script_path)        
-        click.echo("Falling back to using rpy2")
+    cmd = f"Rscript --vanilla {rscript} {metadata} {output}"
+    os.system(cmd)
 
-        import rpy2.robjects as robjects
-        from rpy2.robjects import pandas2ri
-        pandas2ri.activate()
-        robjects.r(
-            '''
-            <script body>
-            '''
-        )
-
-    ent_de = pd.read_csv(os.path.join(interDir, 'nowakowski_EN.mast_ent_de.csv'))
+    ent_de = pd.read_csv(output)
     return ent_de
 
 @cli.command()
 @click.option('--ent_de', type=str, default=None, help='Output from differential gene analysis via MAST R package')
 def post_mast(ent_de):
     click.echo("--> post_singler_pre_mast --> MAST --> *You are here*")
+    ent_de = pd.read_csv(ent_de)
     ent_de.index = ent_de.primerid
 
     ## import annotation from the biomart database
@@ -582,10 +549,18 @@ def post_mast(ent_de):
     ent_de_ann = ent_de.merge(annot, left_index=True, right_index=True)
     ent_de_ann.sort_values(by=['FDR'], inplace=True)
 
-    filename = f"{prefix}.log1p_liger_singleR_nowakowski_3cellTypes_MAST.parquet "
+    filename = f"{prefix}.log1p_liger_singleR_nowakowski_3cellTypes_MAST.parquet"
     output_path = os.path.join(interDir, filename)
     ent_de_ann.to_parquet(output_path)
     return
 
 if __name__ == "__main__":
+    git_repo = git.Repo(".", search_parent_directories=True)
+    git_root = git_repo.git.rev_parse("--show-toplevel")
+
+    topDir = os.path.join(git_root, "raw_data/Pasca_scRNAseq/")
+    prefix = 'pasca'
+    outDir = pathlib.Path(topDir,"outputs")
+    interDir = pathlib.Path(topDir, "inter-test")
+    
     cli()
